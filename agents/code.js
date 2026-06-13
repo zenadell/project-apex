@@ -100,6 +100,8 @@ export class CodeAgent extends BaseAgent {
 
       if (!testResult.passed) {
         this.log(`❌ Failed after ${attempt} attempts. Last error: ${testResult.errors?.slice(0, 200)}`);
+        // Propagate failure to orchestrator so it can REFLECT
+        throw new Error(`CodeAgent tests failed: ${testResult.errors?.slice(0, 300)}`);
       }
     }
 
@@ -284,9 +286,18 @@ export class CodeAgent extends BaseAgent {
     if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
     
     const warden = registry.get('WardenAgent');
+    
+    // Resolve outputDir to absolute for prefix stripping
+    const absOutputDir = path.resolve(outputDir);
+    const outputDirBasename = path.basename(absOutputDir);
 
     for (const file of files) {
-      const fullPath = path.join(outputDir, file.path);
+      // Fix double-nesting: if file.path starts with the outputDir basename, strip it
+      let filePath = file.path;
+      if (filePath.startsWith(outputDirBasename + '/') || filePath.startsWith(outputDirBasename + path.sep)) {
+        filePath = filePath.slice(outputDirBasename.length + 1);
+      }
+      const fullPath = path.join(outputDir, filePath);
       
       if (warden) {
         let content = file.content;
@@ -425,8 +436,9 @@ export class CodeAgent extends BaseAgent {
   async _autoFix(files, errors, objective) {
     this.log(`Auto-fixing errors: ${errors.slice(0, 200)}`);
 
+    const fileList = files.map(f => f.path).join(', ');
     const fixPlan = await structured(
-      `These errors occurred when running the project:\n\n${errors}\n\nObjective: ${objective}\n\nIdentify which files need fixes and what changes are needed.`,
+      `These errors occurred when running the project:\n\n${errors}\n\nObjective: ${objective}\n\nProject files: ${fileList}\n\nIdentify which files need fixes and what changes are needed. Use EXACT file paths from the project files list above.`,
       {
         filesToFix: ['array of file paths that need changes'],
         fixes: { 'filename': 'description of fix needed' },
@@ -435,15 +447,20 @@ export class CodeAgent extends BaseAgent {
 
     const fixedFiles = [];
     for (const [filePath, fixDesc] of Object.entries(fixPlan.fixes || {})) {
-      const original = files.find(f => f.path === filePath);
+      // Fuzzy match: LLM may return 'index.js' when the actual path is 'link-extractor/index.js'
+      let original = files.find(f => f.path === filePath);
+      if (!original) {
+        original = files.find(f => f.path.endsWith('/' + filePath) || path.basename(f.path) === filePath);
+      }
       if (!original) continue;
+      const resolvedPath = original.path; // Use the actual path from our files array
 
       const fixed = await complete(
         `Fix this code:\n\nFile: ${filePath}\nError: ${errors.slice(0, 500)}\nFix needed: ${fixDesc}\n\nOriginal code:\n${original.content}\n\nRULES:\n- Return ONLY the fixed source code. No explanations, no markdown fences, no preamble.\n- The output will be saved directly as "${filePath}". It must be syntactically valid.`,
         { temperature: 0.1 }
       );
 
-      fixedFiles.push({ path: filePath, content: this._stripLLMNarrative(fixed) });
+      fixedFiles.push({ path: resolvedPath, content: this._stripLLMNarrative(fixed) });
     }
 
     return fixedFiles;
