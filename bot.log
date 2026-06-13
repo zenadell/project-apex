@@ -1,0 +1,617 @@
+
+
+⚡ APEX — Autonomous Polymorphic Execution System
+Initializing agents...
+
+  [DeviceAgent] Input driver: osascript, Screen: screencapture
+  ✓ ResearchAgent [research]
+  ✓ CodeAgent [engineering]
+  ✓ SecurityAgent [security]
+  ✓ SelfModAgent [self_modification]
+  ✓ SkillsAgent [skills]
+  ✓ BrowserAgent [browser]
+  ✓ BrowserAgentPro [browser_pro]
+  ✓ UIAgent [frontend]
+  ✓ QAAgent [quality_assurance]
+  ✓ ArchitectAgent [architecture]
+  ✓ VoiceAgent [voice]
+  ✓ DeviceAgent [device]
+  ✓ VisionAgent [vision]
+  ✓ UserProfileAgent [user_profile]
+  ✓ EmailCalendarAgent [email_calendar]
+  ✓ DataAgent [data]
+  ✓ DeployAgent [deployment]
+  ✓ SocialMessagingAgent [social_messaging]
+  ✓ BusinessProspector [prospector]
+  ✓ RevenueAgent [revenue]
+  ✓ IntelligenceMonitor [intelligence]
+  ✓ VerifierAgent [verification]
+  ✓ GenerationAgent [generation]
+  ✓ VideoAgent [video]
+  ✓ BlenderAgent [3d_modeling]
+  ✓ ConsultAgent [consult]
+  ✓ FileSyncAgent [file_sync]
+
+✅ APEX ready. All systems operational.
+
+💚 Self-healing active — real functional tests every 2 min
+🔮 Proactive Engine active
+  [IntelligenceMonitor] Intelligence monitoring scheduled — daily at 06:00
+  Webhook cleared, starting polling...
+✅ Telegram bot online
+✅ Telegram channel running. Send /start to your bot.
+  [SelfModAgent] Starting gap detection cycle...
+  [SelfModAgent] Identified 7 capability gaps
+  [SelfModAgent] Filling gap: Enhanced Error Handling for Hardware Operations (tool/integration)
+  [SelfModAgent] Creating tool: Enhanced Error Handling for Hardware Operations
+[WebcamCapture] Photo saved: /Users/mac/Downloads/apex 4/captures/webcam_1780103582546.jpg
+  [SelfModAgent] Generation attempt 1/3 for Enhanced Error Handling for Hardware Operations
+💚 Health: 26/27 agents idle | 22 capabilities | 13 tasks run
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+  [SelfModAgent] Failed to fill gap "Enhanced Error Handling for Hardware Operations": All LLM providers failed. Last error: Request failed with status code 429
+  [SelfModAgent] Filling gap: Advanced Hardware Monitoring with Alerts (tool/integration)
+  [SelfModAgent] Creating tool: Advanced Hardware Monitoring with Alerts
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Generation attempt 1/3 for Advanced Hardware Monitoring with Alerts
+  [SelfModAgent] Filled gap: Advanced Hardware Monitoring with Alerts
+  🧬 SelfMod: Filled gap "Advanced Hardware Monitoring with Alerts"
+
+✨ Proactive: New capability added — "Advanced Hardware Monitoring with Alerts"
+  [SelfModAgent] Filling gap: Cross-Device Hardware Compatibility (agent/integration)
+  [SelfModAgent] Creating tool: Cross-Device Hardware Compatibility
+⚕️  Health issues: SelfModAgent
+🧬 Gap detection running...
+  [SelfModAgent] Starting gap detection cycle...
+
+🎯 Proactive: Working on goal — "Capture a photo using macOS webcam"
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+  [SelfModAgent] Failed to fill gap "Cross-Device Hardware Compatibility": All LLM providers failed. Last error: timeout of 300000ms exceeded
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Identified 5 capability gaps
+  [SelfModAgent] Filling gap: Real-time Hardware Data Streaming (tool/integration)
+  [SelfModAgent] Creating tool: Real-time Hardware Data Streaming
+  [SelfModAgent] Generation attempt 1/3 for Real-time Hardware Data Streaming
+  [SelfModAgent] Attempt 1 failed syntax check: LANGUAGE MIX ERROR: You are writing Swift code inside a JavaScript file. STOP. Follow the BRIDGE PATTERN: 1. Write Swift to a .swift file. 2. Compile with swiftc. 3. Call binary from JS.
+  [SelfModAgent] Generation attempt 2/3 for Real-time Hardware Data Streaming
+  [SelfModAgent] Filled gap: Real-time Hardware Data Streaming
+  🧬 SelfMod: Filled gap "Real-time Hardware Data Streaming"
+
+✨ Proactive: New capability added — "Real-time Hardware Data Streaming"
+  [SelfModAgent] Filling gap: Advanced Hardware Interface for Bluetooth Devices (tool/integration)
+  [SelfModAgent] Creating tool: Advanced Hardware Interface for Bluetooth Devices
+💚 Health: 27/27 agents idle | 22 capabilities | 13 tasks run
+🧬 Gap detection running...
+  [SelfModAgent] Starting gap detection cycle...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+  [SelfModAgent] Failed to fill gap "Advanced Hardware Interface for Bluetooth Devices": All LLM providers failed. Last error: timeout of 300000ms exceeded
+  [SelfModAgent] Filling gap: Enhanced Network Traffic Analysis Tool (Advanced) (tool/integration)
+  [SelfModAgent] Creating tool: Enhanced Network Traffic Analysis Tool (Advanced)
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Identified 5 capability gaps
+  [SelfModAgent] Filling gap: Advanced Camera Access (tool)
+  [SelfModAgent] Creating tool: Advanced Camera Access
+  [SelfModAgent] Generation attempt 1/3 for Enhanced Network Traffic Analysis Tool (Advanced)
+  [SelfModAgent] Generation attempt 1/3 for Advanced Camera Access
+  [SelfModAgent] Filled gap: Enhanced Network Traffic Analysis Tool (Advanced)
+  🧬 SelfMod: Filled gap "Enhanced Network Traffic Analysis Tool (Advanced)"
+
+✨ Proactive: New capability added — "Enhanced Network Traffic Analysis Tool (Advanced)"
+  [SelfModAgent] Attempt 1 failed syntax check: LANGUAGE MIX ERROR: You are writing Swift code inside a JavaScript file. STOP. Follow the BRIDGE PATTERN: 1. Write Swift to a .swift file. 2. Compile with swiftc. 3. Call binary from JS.
+  [SelfModAgent] Generation attempt 2/3 for Advanced Camera Access
+  [SelfModAgent] Filled gap: Advanced Camera Access
+  🧬 SelfMod: Filled gap "Advanced Camera Access"
+
+✨ Proactive: New capability added — "Advanced Camera Access"
+  [SelfModAgent] Filling gap: Advanced WiFi Management (tool)
+  [SelfModAgent] Creating tool: Advanced WiFi Management
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+  [SelfModAgent] Failed to fill gap "Advanced WiFi Management": All LLM providers failed. Last error: timeout of 300000ms exceeded
+  [SelfModAgent] Filling gap: Advanced Hardware Monitoring with Alerts (tool)
+  [SelfModAgent] Creating tool: Advanced Hardware Monitoring with Alerts
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚠️ Telegram connection lost. Waiting for auto-retry...
+  [SelfModAgent] Generation attempt 1/3 for Advanced Hardware Monitoring with Alerts
+  [SelfModAgent] Attempt 1 failed syntax check: LANGUAGE MIX ERROR: You are writing Swift code inside a JavaScript file. STOP. Follow the BRIDGE PATTERN: 1. Write Swift to a .swift file. 2. Compile with swiftc. 3. Call binary from JS.
+  [SelfModAgent] Generation attempt 2/3 for Advanced Hardware Monitoring with Alerts
+⚠️ Telegram connection lost. Waiting for auto-retry...
+  [SelfModAgent] Filled gap: Advanced Hardware Monitoring with Alerts
+  🧬 SelfMod: Filled gap "Advanced Hardware Monitoring with Alerts"
+
+✨ Proactive: New capability added — "Advanced Hardware Monitoring with Alerts"
+🧬 Gap detection running...
+  [SelfModAgent] Starting gap detection cycle...
+⚠️ Telegram connection lost. Waiting for auto-retry...
+⚕️  Health issues: SelfModAgent
+⚠️ Telegram connection lost. Waiting for auto-retry...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+💚 Health: 27/27 agents idle | 22 capabilities | 13 tasks run
+🧬 Gap detection running...
+  [SelfModAgent] Starting gap detection cycle...
+⚠️ Telegram connection lost. Waiting for auto-retry...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+⚕️  LLM unreachable: All LLM providers failed. Last error: timeout of 300000ms exceeded
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚠️ Telegram connection lost. Waiting for auto-retry...
+⚕️  Health issues: SelfModAgent
+⚠️ Telegram connection lost. Waiting for auto-retry...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+⚕️  LLM unreachable: All LLM providers failed. Last error: timeout of 300000ms exceeded
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Health issues: SelfModAgent
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+
+🎯 Proactive: Working on goal — "Capture a photo using macOS webcam"
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+⚕️  Health issues: SelfModAgent
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Health issues: SelfModAgent
+💚 Health: 26/27 agents idle | 22 capabilities | 13 tasks run
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+⚕️  Health issues: SelfModAgent
+🧬 Gap detection running...
+  [SelfModAgent] Starting gap detection cycle...
+⚕️  Health issues: SelfModAgent
+  [SelfModAgent] Starting gap detection cycle...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+💚 Health: 26/27 agents idle | 22 capabilities | 13 tasks run
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Health issues: SelfModAgent
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Health issues: SelfModAgent
+⚠️ Telegram connection lost. Waiting for auto-retry...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+⚕️  Health issues: SelfModAgent
+🧬 Gap detection running...
+  [SelfModAgent] Starting gap detection cycle...
+⚠️ Telegram connection lost. Waiting for auto-retry...
+  [SelfModAgent] Starting gap detection cycle...
+⚠️ Telegram connection lost. Waiting for auto-retry...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+⚕️  LLM unreachable: All LLM providers failed. Last error: timeout of 300000ms exceeded
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Starting gap detection cycle...
+⚠️ Telegram connection lost. Waiting for auto-retry...
+  [SelfModAgent] Identified 5 capability gaps
+  [SelfModAgent] Filling gap: Direct Camera Access Tool (tool)
+  [SelfModAgent] Creating tool: Direct Camera Access Tool
+  [SelfModAgent] Starting gap detection cycle...
+💚 Health: 26/27 agents idle | 22 capabilities | 13 tasks run
+⚠️ Telegram connection lost. Waiting for auto-retry...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+⚕️  LLM unreachable: All LLM providers failed. Last error: timeout of 300000ms exceeded
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Starting gap detection cycle...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Starting gap detection cycle...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Generation attempt 1/3 for Direct Camera Access Tool
+  [SelfModAgent] Starting gap detection cycle...
+  [SelfModAgent] Attempt 1 failed syntax check: LANGUAGE MIX ERROR: You are writing Swift code inside a JavaScript file. STOP. Follow the BRIDGE PATTERN: 1. Write Swift to a .swift file. 2. Compile with swiftc. 3. Call binary from JS.
+  [SelfModAgent] Generation attempt 2/3 for Direct Camera Access Tool
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Starting gap detection cycle...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+✓ Ollama engine detected.
+  [SelfModAgent] Attempt 2 failed syntax check: Command failed: /usr/local/bin/node --input-type=module --check < "/tmp/apex-test-Direct-Camera-Access-Tool-1780125537046.js"
+
+  [SelfModAgent] Generation attempt 3/3 for Direct Camera Access Tool
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Starting gap detection cycle...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Filled gap: Direct Camera Access Tool
+  🧬 SelfMod: Filled gap "Direct Camera Access Tool"
+
+✨ Proactive: New capability added — "Direct Camera Access Tool"
+  [SelfModAgent] Filling gap: WiFi Scanning Tool with Direct Driver (tool)
+  [SelfModAgent] Creating tool: WiFi Scanning Tool with Direct Driver
+  [SelfModAgent] Starting gap detection cycle...
+  [SelfModAgent] Starting gap detection cycle...
+💚 Health: 26/27 agents idle | 22 capabilities | 13 tasks run
+⚠️ Telegram connection lost. Waiting for auto-retry...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+  [SelfModAgent] Generation attempt 1/3 for WiFi Scanning Tool with Direct Driver
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Starting gap detection cycle...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+  [SelfModAgent] Failed to fill gap "WiFi Scanning Tool with Direct Driver": All LLM providers failed. Last error: timeout of 300000ms exceeded
+  [SelfModAgent] Filling gap: Enhanced Error Handling and Retry Mechanism with Exponential Backoff (tool)
+  [SelfModAgent] Creating tool: Enhanced Error Handling and Retry Mechanism with Exponential Backoff
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Starting gap detection cycle...
+⚕️  Health issues: SelfModAgent
+  [SelfModAgent] Starting gap detection cycle...
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+  [SelfModAgent] Failed to fill gap "Enhanced Error Handling and Retry Mechanism with Exponential Backoff": All LLM providers failed. Last error: timeout of 300000ms exceeded
+✓ Ollama engine detected.
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+⚕️  Health issues: SelfModAgent
+
+🎯 Proactive: Working on goal — "Capture a photo using macOS webcam"
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Health issues: SelfModAgent
+💚 Health: 26/27 agents idle | 22 capabilities | 13 tasks run
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+✓ Ollama service running.
+✓ Found existing capable local model: qwen2.5-coder:7b
+✅ APEX Brain Successfully Resuscitated on Local LLM (qwen2.5-coder:7b)
+⚕️  Bootstrapper completed successfully. APEX is functioning locally.
+  [SelfModAgent] Identified 9 capability gaps
+  [SelfModAgent] Filling gap: Advanced Audio Processing (tool)
+  [SelfModAgent] Creating tool: Advanced Audio Processing
+⚕️  Recovering SelfModAgent...
+✅ SelfModAgent recovered
+⚕️  Health issues: SelfModAgent
+  [SelfModAgent] Generation attempt 1/3 for Advanced Audio Processing
+  [SelfModAgent] Attempt 1 failed syntax check: LANGUAGE MIX ERROR: You are writing Swift code inside a JavaScript file. STOP. Follow the BRIDGE PATTERN: 1. Write Swift to a .swift file. 2. Compile with swiftc. 3. Call binary from JS.
+  [SelfModAgent] Generation attempt 2/3 for Advanced Audio Processing
+  [SelfModAgent] Filled gap: Advanced Audio Processing
+  🧬 SelfMod: Filled gap "Advanced Audio Processing"
+
+✨ Proactive: New capability added — "Advanced Audio Processing"
+  [SelfModAgent] Filling gap: Real-Time Data Processing Engine (tool)
+  [SelfModAgent] Creating tool: Real-Time Data Processing Engine
+  [SelfModAgent] Generation attempt 1/3 for Real-Time Data Processing Engine
+⚕️  Caught Fatal LLM Failure. Activating Bootstrapper...
+  [SelfModAgent] Failed to fill gap "Real-Time Data Processing Engine": All LLM providers failed. Last error: 
+  [SelfModAgent] Filling gap: Advanced Machine Learning Framework (tool)
+  [SelfModAgent] Creating tool: Advanced Machine Learning Framework
+ 🚨 APEX SYSTEM CRITICAL: ALL LLM CLOUD PROVIDERS FAILED 🚨 
+🧬 Autonomously initiating local brain bootstrapping sequence...
+💻 Host Environment: darwin | RAM: 32.0GB
+  [Bootstrapper] Using Ollama path: /usr/local/bin/ollama
+✓ Ollama engine detected.
+🔄 Starting Ollama service...
+  [SelfModAgent] Failed to fill gap "Advanced Machine Learning Framework": All LLM providers failed. Last error: 

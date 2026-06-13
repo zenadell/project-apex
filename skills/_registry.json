@@ -1,0 +1,106 @@
+{
+  "whisper": {
+    "name": "whisper",
+    "type": "pip",
+    "source": "openai-whisper",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_openai-whisper/bridge.py",
+    "description": "Real-time speech-to-text using OpenAI Whisper for transcribing earnings call audio",
+    "installedAt": 1780878592430
+  },
+  "chromadb": {
+    "name": "chromadb",
+    "type": "pip",
+    "source": "chromadb",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_chromadb/bridge.py",
+    "description": "Vector database for storing and retrieving embeddings of earnings call transcripts",
+    "installedAt": 1780878640071
+  },
+  "langchain": {
+    "name": "langchain",
+    "type": "pip",
+    "source": "langchain",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_langchain/bridge.py",
+    "description": "Framework for building RAG pipelines, integrating LLM, embeddings, and retrieval",
+    "installedAt": 1780878669095
+  },
+  "fastapi": {
+    "name": "fastapi",
+    "type": "pip",
+    "source": "fastapi",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_fastapi/bridge.py",
+    "description": "High-performance async web framework for real-time API endpoints and WebSocket support",
+    "installedAt": 1780878685938
+  },
+  "uvicorn": {
+    "name": "uvicorn",
+    "type": "pip",
+    "source": "uvicorn",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_uvicorn/bridge.py",
+    "description": "ASGI server for running FastAPI in production with real-time capabilities",
+    "installedAt": 1780878707136
+  },
+  "pypdf": {
+    "name": "pypdf",
+    "type": "pip",
+    "source": "pypdf",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_pypdf/bridge.py",
+    "description": "PDF parsing for extracting earnings call PDF transcripts and reports",
+    "installedAt": 1780878720615
+  },
+  "sentence-transformers": {
+    "name": "sentence-transformers",
+    "type": "pip",
+    "source": "sentence-transformers",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_sentence-transformers/bridge.py",
+    "description": "Sentence embeddings for document chunking and semantic search via ChromaDB",
+    "installedAt": 1780878730614
+  },
+  "websockets": {
+    "name": "websockets",
+    "type": "pip",
+    "source": "websockets",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_websockets/bridge.py",
+    "description": "Real-time bidirectional communication for streaming transcribed text to frontend",
+    "installedAt": 1780878741881
+  },
+  "pyaudio": {
+    "name": "pyaudio",
+    "type": "pip",
+    "source": "pyaudio",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_pyaudio/bridge.py",
+    "description": "Audio input for live microphone capture during earnings call streaming",
+    "installedAt": 1780878753728
+  },
+  "edge-tts": {
+    "name": "edge-tts",
+    "type": "pip",
+    "source": "edge-tts",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_edge-tts/bridge.py",
+    "description": "Free, high-quality text-to-speech using Microsoft Edge's TTS engine. Supports streaming audio output.",
+    "installedAt": 1780936960015
+  },
+  "faster-whisper": {
+    "name": "faster-whisper",
+    "type": "pip",
+    "source": "faster-whisper",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_faster-whisper/bridge.py",
+    "description": "Optimized version of OpenAI Whisper for real-time speech-to-text with lower latency.",
+    "installedAt": 1780936986545
+  },
+  "webrtcvad": {
+    "name": "webrtcvad",
+    "type": "pip",
+    "source": "webrtcvad",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_webrtcvad/bridge.py",
+    "description": "Voice Activity Detection to segment speech from silence for efficient STT processing.",
+    "installedAt": 1780937002181
+  },
+  "streaming_speech_recognition": {
+    "name": "streaming_speech_recognition",
+    "type": "pip",
+    "source": "vosk",
+    "path": "/Users/mac/Downloads/apex 4/skills/pip_vosk/bridge.py",
+    "description": "Real-time offline speech recognition using Vosk models for continuous voice input.",
+    "installedAt": 1780937470906
+  }
+}

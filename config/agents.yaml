@@ -1,0 +1,197 @@
+# APEX — Agent & System Configuration
+# config/agents.yaml
+
+system:
+  name: APEX
+  version: "1.0.0"
+  description: "Autonomous Polymorphic Execution System"
+  llm:
+    primary: "gemini-2.5-flash-preview-04-17"
+    fallback: "gemini-1.5-flash"
+    temperature: 0.7
+    maxTokens: 8192
+  selfMod:
+    enabled: true
+    gapFillInterval: 1800000   # 30 minutes
+    maxPluginsPerCycle: 3
+  selfHealing:
+    enabled: true
+    healthCheckInterval: 300000  # 5 minutes
+    errorThreshold: 3
+  memory:
+    maxEntries: 10000
+    longTermRetention: 90       # days
+  security:
+    requireAuthorizationForExternalTargets: true
+    safeTargets:
+      - localhost
+      - 127.0.0.1
+      - 192.168.
+      - 10.0.
+      - testphp.vulnweb.com
+      - hack.me
+
+agents:
+  - name: ResearchAgent
+    type: research
+    enabled: true
+    priority: 1
+    timeout: 120000
+    config:
+      maxSearchResults: 5
+      maxUrlFetch: 3
+      maxRepoFiles: 10
+
+  - name: CodeAgent
+    type: engineering
+    enabled: true
+    priority: 2
+    timeout: 300000
+    config:
+      autoInstallDeps: true
+      autoFix: true
+      maxFiles: 20
+      sandboxExecution: true
+
+  - name: UIAgent
+    type: frontend
+    enabled: true
+    priority: 3
+    timeout: 180000
+    config:
+      defaultFramework: auto
+      generateStandaloneHTML: true
+      alwaysGenerateGlobalCSS: true
+
+  - name: ArchitectAgent
+    type: architecture
+    enabled: true
+    priority: 2
+    timeout: 60000
+    config:
+      defaultScale: startup
+
+  - name: SecurityAgent
+    type: security
+    enabled: true
+    priority: 4
+    timeout: 120000
+    config:
+      requireAuthorization: true
+      maxScanTime: 60000
+
+  - name: BrowserAgent
+    type: browser
+    enabled: true
+    priority: 3
+    timeout: 60000
+    config:
+      headless: true
+      screenshotOnComplete: false
+      maxActionsPerTask: 20
+
+  - name: QAAgent
+    type: quality_assurance
+    enabled: true
+    priority: 5
+    timeout: 120000
+    config:
+      minPassScore: 70
+      minApproveScore: 80
+      runRedTeam: true
+
+  - name: SkillsAgent
+    type: skills
+    enabled: true
+    priority: 2
+    timeout: 300000
+    config:
+      autoInstall: true
+      preferredNodeManager: npm
+
+  - name: SelfModAgent
+    type: self_modification
+    enabled: true
+    priority: 1
+    timeout: 300000
+    config:
+      maxGapsPerCycle: 3
+      testBeforeIntegrate: true
+      hotReload: true
+
+  - name: VoiceAgent
+    type: voice
+    enabled: true
+    priority: 5
+    timeout: 30000
+    config:
+      autoInstallTTS: true
+      defaultVoice: en-US-AriaNeural
+
+pipelines:
+  fullbuild:
+    description: "Complete software build pipeline"
+    steps:
+      - agent: ResearchAgent
+        task: "Research best practices and tech stack for: {objective}"
+      - agent: ArchitectAgent
+        task: "Design full system architecture for: {objective}"
+        dependsOn: 0
+      - agent: CodeAgent
+        task: "Build backend based on architecture: {objective}"
+        dependsOn: 1
+      - agent: UIAgent
+        task: "Build frontend UI for: {objective}"
+        dependsOn: 1
+        parallel: true
+      - agent: QAAgent
+        task: "QA check the complete build: {objective}"
+        dependsOn: [2, 3]
+
+  security_assessment:
+    description: "Full security assessment pipeline"
+    steps:
+      - agent: ResearchAgent
+        task: "OSINT research on target: {target}"
+      - agent: SecurityAgent
+        task: "Full security assessment of: {target}"
+      - agent: QAAgent
+        task: "Review security findings for: {target}"
+        dependsOn: 1
+
+  research_and_code:
+    description: "Research then implement"
+    steps:
+      - agent: ResearchAgent
+        task: "Deep research for: {objective}"
+      - agent: ArchitectAgent
+        task: "Architecture plan based on research for: {objective}"
+        dependsOn: 0
+      - agent: CodeAgent
+        task: "Implement: {objective}"
+        dependsOn: 1
+
+kali:
+  enabled: auto                 # auto-detect Kali or Docker
+  dockerImage: kalilinux/kali-rolling
+  containerName: apex-kali-sandbox
+  toolsToPreInstall:
+    - nmap
+    - nikto
+    - gobuster
+    - sqlmap
+    - theharvester
+    - dirb
+    - wpscan
+    - dnsrecon
+    - sslscan
+    - enum4linux
+
+channels:
+  telegram:
+    enabled: false              # set to true and add TELEGRAM_BOT_TOKEN
+    autoAuthorize: true
+    commandPrefix: "/"
+  whatsapp:
+    enabled: false              # set to true to enable
+    sessionDir: .apex-whatsapp-auth
