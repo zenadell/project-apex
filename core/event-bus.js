@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 class ApexEventBus extends EventEmitter {
   constructor() {
     super();
+    this.setMaxListeners(50); // APEX has 30+ agents — each registers a broadcast listener
     this._history = [];
     this._maxHistory = 1000;
   }

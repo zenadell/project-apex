@@ -385,6 +385,29 @@ export class CodeAgent extends BaseAgent {
       }
     }
 
+    // Try Docker sandbox first — fully isolated execution
+    try {
+      const dockerAvailable = await sandbox.isAvailable();
+      if (dockerAvailable) {
+        this.log('Executing tests in Docker sandbox...');
+        const result = await sandbox.runProject({
+          projectDir: outputDir,
+          installCmd: architecture.dependencies?.length > 0 ? 'npm install --production' : null,
+          testCmd: architecture.testCommand,
+          expectedOutputs: Object.keys(architecture.structure || {}),
+          timeout: 60000,
+        });
+        if (result.success) {
+          return { passed: true, output: result.output + (result.errors || '') };
+        } else {
+          return { passed: false, errors: result.errors, output: result.output };
+        }
+      }
+    } catch (e) {
+      this.log(`Docker sandbox failed: ${e.message}. Falling back to native execution.`);
+    }
+
+    // Fallback: native execution
     try {
       this.log('Executing tests natively...');
       let cmd = architecture.testCommand;

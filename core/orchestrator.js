@@ -379,7 +379,7 @@ class Orchestrator {
   async _dynamicPlan(userInput, agentList, capabilities, graphifyContext = '') {
     try {
       return await structured(
-        `You are an expert task planner for an autonomous AI system.\n\nUser request: "${userInput}"\n\nAvailable agents:\n${agentList}\n\nAvailable capabilities:\n${capabilities}\n${graphifyContext ? `\nCodebase context:\n${graphifyContext}` : ''}\n\nCreate an optimal execution plan with 1-6 steps. Use ONLY agents from the available list. Be specific in each subtask description.`,
+        `You are an expert task planner for an autonomous AI system.\n\nUser request: "${userInput}"\n\nAvailable agents:\n${agentList}\n\nAvailable capabilities:\n${capabilities}\n${graphifyContext ? `\nCodebase context:\n${graphifyContext}` : ''}\n\nCRITICAL PLANNING RULES:\n1. CodeAgent handles its own dependency installation (npm install, pip install). Do NOT create separate SkillsAgent subtasks for package installation.\n2. For simple build tasks (create a file, generate an image, write a script), use ONLY CodeAgent with a single subtask.\n3. Only use SkillsAgent when the task requires installing system-level tools (not npm/pip packages).\n4. Keep plans minimal — 1-2 subtasks for simple tasks, 3-4 for complex ones. Never exceed 6.\n5. Set outputDir to "." for build tasks unless the user specifies a different directory.\n\nCreate an optimal execution plan.`,
         {
           approach: 'brief description of the approach',
           taskType: 'build|research|modify|analyze|deploy',
@@ -387,7 +387,7 @@ class Orchestrator {
           subtasks: [{ agent: 'AgentName', task: 'specific task description', dependsOn: null }],
           parallel: false,
           needsNewCapabilities: false,
-          outputDir: null,
+          outputDir: '.',
           complexity: 'simple|moderate|complex',
         },
         { temperature: 0.2, timeout: 30000 }
