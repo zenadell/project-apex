@@ -423,6 +423,13 @@ export class CodeAgent extends BaseAgent {
       this.log('Executing tests natively...');
       let cmd = architecture.testCommand;
       if (cmd.startsWith('python ')) cmd = cmd.replace('python ', 'python3 ');
+      
+      // Strip outputDir prefix from command — cwd is already set to outputDir
+      const dirBasename = path.basename(path.resolve(outputDir));
+      cmd = cmd.replace(new RegExp(`\\b${dirBasename}/`, 'g'), '');
+      // Also strip cd commands since we set cwd
+      cmd = cmd.replace(/^cd\s+[^\s;]+\s*&&\s*/i, '');
+      
       const { stdout, stderr } = await execAsync(cmd, {
         cwd: outputDir,
         timeout: 60000,
