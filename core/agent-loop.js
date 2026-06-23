@@ -53,11 +53,21 @@ Tools:
              → exact search/replace. "old" MUST appear verbatim exactly once. Prefer this over
                rewriting a whole file.
 - run        { "command": "node test.js" }        → run a shell command in the workspace, get stdout/stderr/exit code
+- plan       { "todos": ["step 1", "step 2", ...] } → declare/replace your checklist for a multi-part task
+- todo       { "index": 0, "status": "in_progress" } → update one checklist item (in_progress | done)
+- delegate   { "task": "<self-contained sub-task>", "context": "<optional handoff notes>" }
+             → hand a big sub-task to a fresh SUB-AGENT. It works in the same workspace with its
+               own clean context and returns a summary. Use it to keep your own context focused.
 - finish     { "summary": "<what you accomplished>", "success": true }
 
 Rules:
 - Output ONLY the JSON object. No markdown fences, no prose around it.
 - Take ONE action per turn, then wait for the OBSERVATION before the next.
+- For a multi-part or long task: FIRST call plan with a short checklist, then work the items,
+  marking each todo "in_progress" when you start it and "done" when it is verified working.
+- Delegate large, self-contained sub-tasks (e.g. "build module X", "write the test suite") with
+  delegate — the sub-agent has its own fresh context, which keeps yours clean. Integrate and
+  verify its result when it returns. For simple 1–2 step tasks, skip planning and just do it.
 - Explore before you edit: use list_dir / search / read_file to understand existing code first.
 - Verify your work by running it (use run). Don't call finish until it actually works.
 - When you write code, write the COMPLETE file content in write_file (no "// ..." placeholders).
@@ -222,7 +232,7 @@ async function execTool(tool, args, workspace, guard) {
     case 'finish':
       return { ok: true, finish: true, summary: args.summary || '(no summary)', success: args.success !== false };
     default:
-      return { ok: false, observation: `Unknown tool "${tool}". Valid: list_dir, read_file, search, write_file, edit_file, run, finish.` };
+      return { ok: false, observation: `Unknown tool "${tool}". Valid: list_dir, read_file, search, write_file, edit_file, run, plan, todo, delegate, finish.` };
   }
 }
 
@@ -291,6 +301,62 @@ export async function maybeCompact(messages, onEvent = () => {}, step = 0) {
   return [head, { role: 'user', content: `PROGRESS SUMMARY (earlier steps compacted):\n${summary}` }, ...recent];
 }
 
+// ─── Plan / todo tracker ────────────────────────────────────────────────────────
+function renderTodos(todos) {
+  if (!todos.length) return '(no todos)';
+  return todos.map((t, i) => `${i}. [${t.status === 'done' ? 'x' : t.status === 'in_progress' ? '~' : ' '}] ${t.task}`).join('\n');
+}
+
+function updatePlan(tool, args, todos, onEvent, depth) {
+  if (tool === 'plan') {
+    const list = Array.isArray(args.todos) ? args.todos : [];
+    if (!list.length) return { ok: false, observation: 'plan needs a non-empty "todos" array.' };
+    todos.length = 0;
+    for (const t of list) {
+      todos.push(typeof t === 'string'
+        ? { task: t, status: 'pending' }
+        : { task: String(t.task || ''), status: t.status || 'pending' });
+    }
+    emit(onEvent, { type: 'plan', depth, todos: todos.map(t => ({ ...t })) });
+    return { ok: true, observation: `Plan set:\n${renderTodos(todos)}` };
+  }
+  // tool === 'todo'
+  const idx = parseInt(args.index, 10);
+  if (Number.isNaN(idx) || idx < 0 || idx >= todos.length) {
+    return { ok: false, observation: `todo: index ${args.index} out of range (0..${todos.length - 1}).` };
+  }
+  todos[idx].status = ['pending', 'in_progress', 'done'].includes(args.status) ? args.status : 'done';
+  emit(onEvent, { type: 'plan', depth, todos: todos.map(t => ({ ...t })) });
+  return { ok: true, observation: `Updated todo ${idx} → ${todos[idx].status}.\n${renderTodos(todos)}` };
+}
+
+// ─── Sub-agent delegation ───────────────────────────────────────────────────────
+// Hand a self-contained sub-task to a CHILD loop with its OWN fresh context. The parent only
+// ever sees the child's summary — not its full transcript — so a big project costs the parent
+// almost no context. This is the mechanism that lets APEX scale to arbitrarily complex work.
+async function runDelegate(args, cfg) {
+  const { workspace, writeGuard, llmOpts, depth, maxDepth, maxSteps, onEvent } = cfg;
+  const task = args.task || args.goal;
+  if (!task) return { ok: false, observation: 'delegate needs a "task" (a self-contained sub-task description).' };
+  if (depth >= maxDepth) {
+    return { ok: false, observation: `Delegation depth limit (${maxDepth}) reached — do this sub-task yourself with the file/run tools.` };
+  }
+
+  emit(onEvent, { type: 'delegate_start', depth, task });
+  const childOnEvent = (ev) => emit(onEvent, { ...ev, depth: (ev.depth ?? depth) + 1, viaDelegate: true });
+  const child = await runAgentLoop(task, {
+    workspace, writeGuard, llmOpts,
+    maxSteps: Math.min(maxSteps, 25),
+    depth: depth + 1,
+    maxDepth,
+    context: args.context ? `Handoff from the parent agent:\n${args.context}` : '',
+    onEvent: childOnEvent,
+  });
+  emit(onEvent, { type: 'delegate_end', depth, success: child.success, summary: child.summary, steps: child.steps });
+  const head = child.success ? 'Sub-agent COMPLETED' : 'Sub-agent did NOT finish';
+  return { ok: child.success, observation: `${head} (${child.steps} steps): ${child.summary}` };
+}
+
 // ─── The loop ──────────────────────────────────────────────────────────────────
 /**
  * Run an autonomous tool-calling loop until the model finishes or steps run out.
@@ -307,6 +373,8 @@ export async function maybeCompact(messages, onEvent = () => {}, step = 0) {
  * @param {boolean} [opts.rollbackOnFailure] snapshot the workspace (file copy, NOT git) before
  *                                    the run and restore it if the loop fails. Only snapshots
  *                                    when the workspace already has content worth protecting.
+ * @param {number} [opts.depth]      current delegation depth (internal; 0 at the top).
+ * @param {number} [opts.maxDepth]   how deep sub-agents may delegate (default 2).
  * @returns {Promise<{success, summary, steps, transcript, rolledBack?}>}
  */
 export async function runAgentLoop(goal, opts = {}) {
@@ -318,6 +386,8 @@ export async function runAgentLoop(goal, opts = {}) {
     llmOpts = {},
     writeGuard = null,   // optional async ({path, fullPath, content}) => {ok, observation} — vets every write/edit
     rollbackOnFailure = false,
+    depth = 0,
+    maxDepth = 2,
   } = opts;
 
   if (!workspace) throw new Error('runAgentLoop requires a workspace directory');
@@ -348,6 +418,7 @@ export async function runAgentLoop(goal, opts = {}) {
   const sys = systemPrompt(context);
   let messages = [{ role: 'user', content: `TASK:\n${goal}\n\nThe workspace is "${path.resolve(workspace)}". Begin. Remember: respond with one JSON tool call.` }];
   const transcript = [];
+  const todos = [];      // the agent's live checklist (plan/todo tools maintain it)
   let consecutiveParseFails = 0;
   let errorStreak = 0;   // consecutive failed steps — when high, escalate flash → pro to think harder
 
@@ -390,7 +461,14 @@ export async function runAgentLoop(goal, opts = {}) {
 
     let result;
     try {
-      result = await execTool(call.tool, call.args, workspace, writeGuard);
+      if (call.tool === 'plan' || call.tool === 'todo') {
+        // Orchestration tools live at the loop level (they touch loop state, not the filesystem).
+        result = updatePlan(call.tool, call.args || {}, todos, onEvent, depth);
+      } else if (call.tool === 'delegate') {
+        result = await runDelegate(call.args || {}, { workspace, writeGuard, llmOpts, depth, maxDepth, maxSteps, onEvent });
+      } else {
+        result = await execTool(call.tool, call.args, workspace, writeGuard);
+      }
     } catch (err) {
       // Any tool error (e.g. a path escaping the workspace) becomes a recoverable observation
       // the model can react to — it must never crash the whole loop.

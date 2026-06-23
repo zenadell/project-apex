@@ -38,32 +38,43 @@ const res = await runAgentLoop(goal, {
   workspace,
   maxSteps,
   onEvent(ev) {
+    const pad = '  '.repeat(ev.depth || 0);   // indent sub-agents by delegation depth
     if (ev.type === 'action') {
       const tag = ev.model === 'pro' ? chalk.magenta(' [pro]') : '';
-      console.log(C.act(`▸ step ${ev.step}: ${ev.tool}`) + tag + C.dim(`  ${ev.thought || ''}`));
+      console.log(pad + C.act(`▸ step ${ev.step}: ${ev.tool}`) + tag + C.dim(`  ${ev.thought || ''}`));
       const a = ev.args || {};
-      if (a.path) console.log(C.dim(`    path: ${a.path}`));
-      if (a.query) console.log(C.dim(`    search: ${a.query}`));
-      if (a.command) console.log(C.dim(`    $ ${a.command}`));
+      if (a.path) console.log(pad + C.dim(`    path: ${a.path}`));
+      if (a.query) console.log(pad + C.dim(`    search: ${a.query}`));
+      if (a.command) console.log(pad + C.dim(`    $ ${a.command}`));
+    } else if (ev.type === 'plan') {
+      console.log(pad + C.info('    ☑ plan:'));
+      for (const t of ev.todos) {
+        const box = t.status === 'done' ? C.ok('[x]') : t.status === 'in_progress' ? C.info('[~]') : C.dim('[ ]');
+        console.log(pad + `      ${box} ${t.task}`);
+      }
+    } else if (ev.type === 'delegate_start') {
+      console.log(pad + chalk.magenta(`    ⇣ delegating to sub-agent: `) + C.dim(ev.task.slice(0, 80)));
+    } else if (ev.type === 'delegate_end') {
+      console.log(pad + (ev.success ? C.ok('    ⇡ sub-agent done: ') : C.err('    ⇡ sub-agent failed: ')) + C.dim((ev.summary || '').slice(0, 90)));
     } else if (ev.type === 'escalate') {
-      console.log(C.info(`    ⤴ stuck (${ev.errorStreak} errors) — escalating to pro reasoner`));
+      console.log(pad + C.info(`    ⤴ stuck (${ev.errorStreak} errors) — escalating to pro reasoner`));
     } else if (ev.type === 'compact') {
-      console.log(C.info(`    ⧉ context compacted (${ev.fromMessages} msgs → summary + recent)`));
+      console.log(pad + C.info(`    ⧉ context compacted (${ev.fromMessages} msgs → summary + recent)`));
     } else if (ev.type === 'snapshot') {
-      console.log(C.dim('    📷 workspace snapshot taken (rollback armed)'));
+      console.log(pad + C.dim('    📷 workspace snapshot taken (rollback armed)'));
     } else if (ev.type === 'rolledback') {
-      console.log(C.err('    ⏪ build failed — workspace rolled back'));
+      console.log(pad + C.err('    ⏪ build failed — workspace rolled back'));
     } else if (ev.type === 'observation') {
-      const head = (ev.observation || '').split('\n').slice(0, 4).join('\n    ');
-      console.log((ev.ok ? C.ok('    ✓ ') : C.err('    ✗ ')) + C.dim(head));
+      const head = (ev.observation || '').split('\n').slice(0, 4).join('\n' + pad + '    ');
+      console.log(pad + (ev.ok ? C.ok('    ✓ ') : C.err('    ✗ ')) + C.dim(head));
     } else if (ev.type === 'parse_fail') {
-      console.log(C.err(`    ! step ${ev.step}: model did not return a valid tool call`));
+      console.log(pad + C.err(`    ! step ${ev.step}: model did not return a valid tool call`));
     } else if (ev.type === 'llm_error') {
-      console.log(C.err(`    ! LLM error: ${ev.error}`));
+      console.log(pad + C.err(`    ! LLM error: ${ev.error}`));
     } else if (ev.type === 'finish') {
-      console.log('\n' + (ev.success ? C.ok('✅ finished: ') : C.err('⚠️  finished (not ok): ')) + ev.summary);
+      if (!ev.depth) console.log('\n' + (ev.success ? C.ok('✅ finished: ') : C.err('⚠️  finished (not ok): ')) + ev.summary);
     } else if (ev.type === 'max_steps') {
-      console.log(C.err(`\n⚠️  hit max steps (${ev.steps})`));
+      console.log(pad + C.err(`⚠️  hit max steps (${ev.steps})`));
     }
   },
 });
