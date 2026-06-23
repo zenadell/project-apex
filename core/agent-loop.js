@@ -14,11 +14,15 @@
 //   - it can navigate real, existing codebases: search (grep) + paged file reads
 //   - context compaction keeps long/complex tasks inside the model's window
 //   - flash→pro escalation: cruise on the cheap model, escalate to the pro reasoner when stuck
+//   - NATIVE function-calling (provider tools API) for robust tool dispatch, with a JSON fallback
+//   - plan/todo tracking + sub-agent delegation (each child gets its own fresh context)
+//   - INDEPENDENT verification: a separate read-only agent must run the code and confirm success
+//     before `finish` is accepted — the agent cannot grade its own homework
 //
 // All file tools are confined to a `workspace` root — the loop cannot escape it and touch
 // APEX's own source. That containment is what makes self-generation safe.
 
-import { chat } from './llm.js';
+import { chat, chatTools } from './llm.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -34,51 +38,50 @@ const DEFAULT_MAX_STEPS = 30;
 const COMPACT_THRESHOLD = 30000; // when message history exceeds ~this many chars, compact older turns
 const KEEP_RECENT = 6;           // recent messages kept verbatim when compacting
 
-// ─── Tool protocol (described to the model) ────────────────────────────────────
-const TOOL_SPEC = `
-You have these tools. Each turn, respond with EXACTLY ONE JSON object and NOTHING else:
+// ─── Tools: native function-calling schemas (OpenAI format) ─────────────────────
+// The model picks tools through the provider's native function-calling API (robust, structured),
+// not by emitting hand-parsed JSON. `allowedTools` lets a constrained agent (e.g. the read-only
+// verifier) be offered only a subset.
+const ALL_TOOL_DEFS = {
+  list_dir:   { description: 'List files and directories at a workspace-relative path.', params: { path: { type: 'string', description: 'directory, default "."' } }, required: [] },
+  read_file:  { description: 'Read a file. For a big file, page it with start/end (1-indexed line numbers).', params: { path: { type: 'string' }, start: { type: 'integer' }, end: { type: 'integer' } }, required: ['path'] },
+  search:     { description: 'Search matching lines across the workspace. query is plain text (case-insensitive) or a /regex/i. Returns file:line: text.', params: { query: { type: 'string' }, path: { type: 'string' } }, required: ['query'] },
+  write_file: { description: 'Create or overwrite a whole file with COMPLETE content (no placeholders).', params: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+  edit_file:  { description: 'Exact search/replace in an existing file. "old" must appear verbatim exactly once.', params: { path: { type: 'string' }, old: { type: 'string' }, new: { type: 'string' } }, required: ['path', 'old', 'new'] },
+  run:        { description: 'Run a shell command in the workspace; returns stdout, stderr, and exit code.', params: { command: { type: 'string' } }, required: ['command'] },
+  plan:       { description: 'Declare or replace your checklist for a multi-part task.', params: { todos: { type: 'array', items: { type: 'string' } } }, required: ['todos'] },
+  todo:       { description: 'Update one checklist item status.', params: { index: { type: 'integer' }, status: { type: 'string', enum: ['pending', 'in_progress', 'done'] } }, required: ['index', 'status'] },
+  delegate:   { description: 'Hand a self-contained sub-task to a fresh sub-agent (its own context, same workspace); returns a summary.', params: { task: { type: 'string' }, context: { type: 'string' } }, required: ['task'] },
+  finish:     { description: 'Finish the task — only after you have actually run the code/tests and confirmed success.', params: { summary: { type: 'string' }, success: { type: 'boolean' } }, required: ['summary'] },
+};
 
-{ "thought": "<one short sentence on what you are doing and why>",
-  "tool": "<tool name>",
-  "args": { ... } }
+function buildToolSchemas(allowed) {
+  const names = allowed && allowed.length ? allowed : Object.keys(ALL_TOOL_DEFS);
+  return names.filter(n => ALL_TOOL_DEFS[n]).map(name => ({
+    type: 'function',
+    function: { name, description: ALL_TOOL_DEFS[name].description, parameters: { type: 'object', properties: ALL_TOOL_DEFS[name].params, required: ALL_TOOL_DEFS[name].required } },
+  }));
+}
 
-Tools:
-- list_dir   { "path": "." }                      → list files/dirs (relative to workspace)
-- read_file  { "path": "src/x.js" }               → return file contents
-                 (page a big file with { "path": "src/x.js", "start": 1, "end": 80 })
-- search     { "query": "needle", "path": "." }   → find matching lines across the workspace.
-                 query is plain text (case-insensitive) or a /regex/i. Returns "file:line: text".
-- write_file { "path": "src/x.js", "content": "..." } → create/overwrite a whole file
-- edit_file  { "path": "src/x.js", "old": "<exact existing snippet>", "new": "<replacement>" }
-             → exact search/replace. "old" MUST appear verbatim exactly once. Prefer this over
-               rewriting a whole file.
-- run        { "command": "node test.js" }        → run a shell command in the workspace, get stdout/stderr/exit code
-- plan       { "todos": ["step 1", "step 2", ...] } → declare/replace your checklist for a multi-part task
-- todo       { "index": 0, "status": "in_progress" } → update one checklist item (in_progress | done)
-- delegate   { "task": "<self-contained sub-task>", "context": "<optional handoff notes>" }
-             → hand a big sub-task to a fresh SUB-AGENT. It works in the same workspace with its
-               own clean context and returns a summary. Use it to keep your own context focused.
-- finish     { "summary": "<what you accomplished>", "success": true }
+function safeParseArgs(s) {
+  if (s == null) return {};
+  if (typeof s === 'object') return s;
+  try { return JSON.parse(s); } catch {}
+  try { return JSON.parse(String(s).replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '')); } catch { return {}; }
+}
 
-Rules:
-- Output ONLY the JSON object. No markdown fences, no prose around it.
-- Take ONE action per turn, then wait for the OBSERVATION before the next.
-- For a multi-part or long task: FIRST call plan with a short checklist, then work the items,
-  marking each todo "in_progress" when you start it and "done" when it is verified working.
-- Delegate large, self-contained sub-tasks (e.g. "build module X", "write the test suite") with
-  delegate — the sub-agent has its own fresh context, which keeps yours clean. Integrate and
-  verify its result when it returns. For simple 1–2 step tasks, skip planning and just do it.
+const STRATEGY = `Work strategy:
+- For a multi-part or long task: FIRST call plan with a short checklist, then work the items, marking each todo in_progress when you start and done when verified.
+- Delegate large, self-contained sub-tasks (e.g. "build module X", "write the test suite") with delegate — the sub-agent has its own fresh context, which keeps yours clean. Integrate and verify its result. For simple 1-2 step tasks, just do them.
 - Explore before you edit: use list_dir / search / read_file to understand existing code first.
-- Verify your work by running it (use run). Don't call finish until it actually works.
-- When you write code, write the COMPLETE file content in write_file (no "// ..." placeholders).
-`.trim();
+- Prefer edit_file (exact diff) over rewriting whole files.
+- VERIFY by running it (use run). Do NOT call finish until the code/tests actually pass — an independent verifier will re-check your claim.
+- Write COMPLETE file contents — never "// ..." placeholders.`;
 
 function systemPrompt(extra = '') {
-  return `You are APEX's autonomous engineering core. You complete software tasks by taking
-real actions through tools and reacting to real results. You are precise, you verify your
-work by executing it, and you fix failures iteratively.
+  return `You are APEX's autonomous engineering core. You complete software tasks by taking real actions through the provided tools and reacting to real results. Call a tool every step. Be precise; verify by executing.
 ${extra ? '\n' + extra + '\n' : ''}
-${TOOL_SPEC}`;
+${STRATEGY}`;
 }
 
 // ─── Robust extraction of a single JSON object from model output ───────────────
@@ -284,9 +287,17 @@ export async function maybeCompact(messages, onEvent = () => {}, step = 0) {
   if (size < COMPACT_THRESHOLD || messages.length <= KEEP_RECENT + 2) return messages;
 
   const head = messages[0];                                  // the original TASK
-  const recent = messages.slice(-KEEP_RECENT);               // keep latest turns verbatim
-  const middle = messages.slice(1, messages.length - KEEP_RECENT);
-  const historyText = middle.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n').slice(0, 24000);
+  // Keep the most recent turns verbatim — but never start the kept window on a dangling tool
+  // result, or the API rejects it (a 'tool' message must follow its assistant's tool_calls).
+  let cut = Math.max(1, messages.length - KEEP_RECENT);
+  while (cut > 1 && messages[cut].role === 'tool') cut--;
+  const recent = messages.slice(cut);
+  const middle = messages.slice(1, cut);
+  const historyText = middle.map(m =>
+    (m.role === 'assistant' && m.tool_calls?.length)
+      ? `ASSISTANT called: ${m.tool_calls.map(t => t.function?.name).join(', ')}`
+      : `${m.role.toUpperCase()}: ${m.content || ''}`
+  ).join('\n').slice(0, 24000);
 
   let summary;
   try {
@@ -357,6 +368,39 @@ async function runDelegate(args, cfg) {
   return { ok: child.success, observation: `${head} (${child.steps} steps): ${child.summary}` };
 }
 
+// ─── Independent verification ───────────────────────────────────────────────────
+// Do NOT let the agent grade its own homework. When it claims `finish`, a SEPARATE read-only
+// agent (its own fresh context, can only read/search/RUN — never modify) must independently
+// confirm the task is actually done by executing the relevant code/tests. If it can't confirm,
+// the worker's finish is rejected and it keeps working with the verifier's precise feedback.
+async function runVerifier(goal, workspace, claim, cfg) {
+  const { llmOpts, onEvent } = cfg;
+  emit(onEvent, { type: 'verify_start' });
+  const vGoal = `INDEPENDENT VERIFICATION — do NOT trust the worker's claim.
+
+ORIGINAL TASK:
+${goal}
+
+THE WORKER CLAIMS IT IS DONE:
+${claim}
+
+Confirm whether the task is ACTUALLY complete: inspect the workspace and RUN the relevant code/tests yourself. You can only read, search, and run — you cannot modify anything.
+Call finish with success=true ONLY if you executed the relevant code/tests and saw them pass and genuinely satisfy the task. Otherwise finish with success=false and a precise one-paragraph reason stating exactly what is missing, wrong, or unverified.`;
+
+  const res = await runAgentLoop(vGoal, {
+    workspace,
+    llmOpts,
+    maxSteps: 12,
+    allowedTools: ['list_dir', 'read_file', 'search', 'run', 'finish'],
+    verify: false,        // never verify the verifier (no recursion)
+    depth: 0,
+    maxDepth: 0,
+    onEvent: (ev) => emit(onEvent, { ...ev, verifier: true }),
+  });
+  emit(onEvent, { type: 'verify_end', verified: res.success, reason: res.summary });
+  return { verified: res.success, reason: res.summary || 'no reason given' };
+}
+
 // ─── The loop ──────────────────────────────────────────────────────────────────
 /**
  * Run an autonomous tool-calling loop until the model finishes or steps run out.
@@ -375,7 +419,12 @@ async function runDelegate(args, cfg) {
  *                                    when the workspace already has content worth protecting.
  * @param {number} [opts.depth]      current delegation depth (internal; 0 at the top).
  * @param {number} [opts.maxDepth]   how deep sub-agents may delegate (default 2).
- * @returns {Promise<{success, summary, steps, transcript, rolledBack?}>}
+ * @param {string[]} [opts.allowedTools] restrict the offered tools to this subset (e.g. the
+ *                                    read-only verifier gets list_dir/read_file/search/run/finish).
+ * @param {boolean} [opts.verify]    on finish (top level only), run an INDEPENDENT read-only
+ *                                    verifier that must confirm the work by running it; if it
+ *                                    can't, the finish is rejected and the agent keeps working.
+ * @returns {Promise<{success, summary, steps, transcript, rolledBack?, verified?}>}
  */
 export async function runAgentLoop(goal, opts = {}) {
   const {
@@ -388,6 +437,8 @@ export async function runAgentLoop(goal, opts = {}) {
     rollbackOnFailure = false,
     depth = 0,
     maxDepth = 2,
+    allowedTools = null,
+    verify = false,
   } = opts;
 
   if (!workspace) throw new Error('runAgentLoop requires a workspace directory');
@@ -416,78 +467,107 @@ export async function runAgentLoop(goal, opts = {}) {
   };
 
   const sys = systemPrompt(context);
-  let messages = [{ role: 'user', content: `TASK:\n${goal}\n\nThe workspace is "${path.resolve(workspace)}". Begin. Remember: respond with one JSON tool call.` }];
+  const toolNames = new Set(allowedTools && allowedTools.length ? allowedTools : Object.keys(ALL_TOOL_DEFS));
+  const toolSchemas = buildToolSchemas(allowedTools);
+  let messages = [{ role: 'user', content: `TASK:\n${goal}\n\nThe workspace is "${wsRoot}". Begin — use the provided tools.` }];
   const transcript = [];
   const todos = [];      // the agent's live checklist (plan/todo tools maintain it)
   let consecutiveParseFails = 0;
   let errorStreak = 0;   // consecutive failed steps — when high, escalate flash → pro to think harder
 
-  emit(onEvent, { type: 'start', goal, workspace: path.resolve(workspace) });
+  emit(onEvent, { type: 'start', goal, workspace: wsRoot });
 
   for (let step = 1; step <= maxSteps; step++) {
     messages = await maybeCompact(messages, onEvent, step);
 
-    // Smart model routing: cruise on cheap/fast flash; when the agent is stuck (repeated errors),
-    // escalate to the pro reasoning model for the next step to get unstuck. This is how a flash+pro
-    // pair punches above its weight — spend the expensive model only where it actually matters.
+    // Smart routing: cruise on cheap/fast flash; when stuck (repeated errors), escalate to the
+    // pro reasoner for the next step. Spend the expensive model only where it matters.
     const stuck = errorStreak >= 2;
     if (stuck) emit(onEvent, { type: 'escalate', step, to: 'pro', errorStreak });
 
-    let raw;
+    let resp;
     try {
-      raw = await chat(messages, { coding: !stuck, complex: stuck, temperature: 0.2, maxTokens: 8000, systemPrompt: sys, ...llmOpts });
+      resp = await chatTools(messages, toolSchemas, { complex: stuck, temperature: 0.2, maxTokens: 8000, systemPrompt: sys, ...llmOpts });
     } catch (err) {
       emit(onEvent, { type: 'llm_error', step, error: err.message });
       return finalize({ success: false, summary: `LLM call failed: ${err.message}`, steps: step - 1, transcript });
     }
 
-    const call = extractToolCall(raw);
-    if (!call || !call.tool) {
-      consecutiveParseFails++;
-      errorStreak++;
-      emit(onEvent, { type: 'parse_fail', step, raw: truncate(raw, 400) });
+    // Prefer native tool_calls; fall back to a JSON object parsed from text content.
+    const native = (resp.toolCalls || []).filter(tc => tc.function?.name);
+    let calls = native.length
+      ? native.map(tc => ({ id: tc.id, name: tc.function.name, args: safeParseArgs(tc.function.arguments) }))
+      : (() => { const p = extractToolCall(resp.content); return (p && p.tool) ? [{ id: null, name: p.tool, args: p.args || {} }] : []; })();
+
+    if (!calls.length) {
+      consecutiveParseFails++; errorStreak++;
+      emit(onEvent, { type: 'parse_fail', step, raw: truncate(resp.content, 400) });
       if (consecutiveParseFails >= 3) {
-        return finalize({ success: false, summary: 'Model failed to produce a valid tool call 3 times.', steps: step, transcript });
+        return finalize({ success: false, summary: 'Model produced no valid tool call 3 times.', steps: step, transcript });
       }
-      messages.push({ role: 'assistant', content: raw || '' });
-      messages.push({ role: 'user', content: 'That was not a valid tool call. Respond with EXACTLY one JSON object: {"thought":"...","tool":"...","args":{...}} and nothing else.' });
+      messages.push({ role: 'assistant', content: resp.content || '' });
+      messages.push({ role: 'user', content: 'That was not a tool call. Use one of the provided tools.' });
       continue;
     }
     consecutiveParseFails = 0;
-    const wasEscalated = stuck;
 
-    emit(onEvent, { type: 'action', step, thought: call.thought, tool: call.tool, args: call.args, model: wasEscalated ? 'pro' : 'flash' });
-    bus.emit('agentloop:action', { step, tool: call.tool });
+    // Finishing supersedes anything else in the same batch — run only the finish call so the
+    // assistant message and its tool responses stay consistent.
+    const finishCall = calls.find(c => c.name === 'finish');
+    const callsToRun = finishCall ? [finishCall] : calls;
+    const idsToRun = new Set(callsToRun.map(c => c.id));
 
-    let result;
-    try {
-      if (call.tool === 'plan' || call.tool === 'todo') {
-        // Orchestration tools live at the loop level (they touch loop state, not the filesystem).
-        result = updatePlan(call.tool, call.args || {}, todos, onEvent, depth);
-      } else if (call.tool === 'delegate') {
-        result = await runDelegate(call.args || {}, { workspace, writeGuard, llmOpts, depth, maxDepth, maxSteps, onEvent });
-      } else {
-        result = await execTool(call.tool, call.args, workspace, writeGuard);
+    if (native.length) messages.push({ role: 'assistant', content: resp.content || '', tool_calls: resp.toolCalls.filter(tc => idsToRun.has(tc.id)) });
+    else messages.push({ role: 'assistant', content: resp.content || JSON.stringify({ tool: callsToRun[0].name, args: callsToRun[0].args }) });
+
+    let anyError = false;
+    let returned = null;
+
+    for (const c of callsToRun) {
+      emit(onEvent, { type: 'action', step, tool: c.name, args: c.args, model: stuck ? 'pro' : 'flash' });
+      bus.emit('agentloop:action', { step, tool: c.name });
+
+      // ── finish: gate on INDEPENDENT verification (top level only) ──
+      if (c.name === 'finish') {
+        const success = c.args?.success !== false;
+        const summary = c.args?.summary || '(no summary)';
+        let verdict = { verified: true, reason: '' };
+        if (verify && depth === 0 && success) verdict = await runVerifier(goal, wsRoot, summary, { llmOpts, onEvent });
+
+        if (verdict.verified) {
+          emit(onEvent, { type: 'finish', step, summary, success, verified: (verify && depth === 0) || undefined });
+          bus.emit('agentloop:finish', { success, summary });
+          returned = finalize({ success, summary, steps: step, transcript, verified: (verify && depth === 0) || undefined });
+          break;
+        }
+        // rejected — feed the verifier's reason back and keep working
+        errorStreak++;
+        emit(onEvent, { type: 'verify_rejected', step, reason: verdict.reason });
+        const msg = `Independent verification FAILED — you are NOT done. ${verdict.reason}\nFix the issues, then finish only when it genuinely passes.`;
+        if (native.length) messages.push({ role: 'tool', tool_call_id: c.id, content: msg });
+        else messages.push({ role: 'user', content: msg });
+        break;
       }
-    } catch (err) {
-      // Any tool error (e.g. a path escaping the workspace) becomes a recoverable observation
-      // the model can react to — it must never crash the whole loop.
-      result = { ok: false, observation: `Tool "${call.tool}" error: ${err.message}` };
+
+      // ── normal tools ──
+      let result;
+      try {
+        if (!toolNames.has(c.name)) result = { ok: false, observation: `Tool "${c.name}" is not available here. Available: ${[...toolNames].join(', ')}.` };
+        else if (c.name === 'plan' || c.name === 'todo') result = updatePlan(c.name, c.args || {}, todos, onEvent, depth);
+        else if (c.name === 'delegate') result = await runDelegate(c.args || {}, { workspace, writeGuard, llmOpts, depth, maxDepth, maxSteps, onEvent });
+        else result = await execTool(c.name, c.args, workspace, writeGuard);
+      } catch (err) {
+        result = { ok: false, observation: `Tool "${c.name}" error: ${err.message}` };
+      }
+      transcript.push({ step, tool: c.name, args: c.args, result });
+      if (!result.ok) anyError = true;
+      emit(onEvent, { type: 'observation', step, ok: result.ok, observation: truncate(result.observation, 800) });
+      if (native.length) messages.push({ role: 'tool', tool_call_id: c.id, content: truncate(result.observation) });
+      else messages.push({ role: 'user', content: `OBSERVATION (${result.ok ? 'ok' : 'error'}):\n${truncate(result.observation)}` });
     }
-    transcript.push({ step, thought: call.thought, tool: call.tool, args: call.args, result });
 
-    if (result.finish) {
-      emit(onEvent, { type: 'finish', step, summary: result.summary, success: result.success });
-      bus.emit('agentloop:finish', { success: result.success, summary: result.summary });
-      return finalize({ success: result.success, summary: result.summary, steps: step, transcript });
-    }
-
-    errorStreak = result.ok ? 0 : (errorStreak + 1);
-    emit(onEvent, { type: 'observation', step, ok: result.ok, observation: truncate(result.observation, 800) });
-
-    // feed the real result back to the model
-    messages.push({ role: 'assistant', content: JSON.stringify({ thought: call.thought, tool: call.tool, args: call.args }) });
-    messages.push({ role: 'user', content: `OBSERVATION (${result.ok ? 'ok' : 'error'}):\n${truncate(result.observation)}` });
+    if (returned) return returned;
+    if (!finishCall) errorStreak = anyError ? errorStreak + 1 : 0;
   }
 
   emit(onEvent, { type: 'max_steps', steps: maxSteps });

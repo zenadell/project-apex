@@ -37,8 +37,14 @@ console.log(C.dim(`   workspace: ${workspace}\n`));
 const res = await runAgentLoop(goal, {
   workspace,
   maxSteps,
+  verify: true,   // an independent read-only agent must confirm the work before finish is accepted
   onEvent(ev) {
     const pad = '  '.repeat(ev.depth || 0);   // indent sub-agents by delegation depth
+    if (ev.verifier) {
+      // tag verifier sub-agent lines so they're visually distinct
+      if (ev.type === 'action') console.log(pad + chalk.blue(`  🔍 verify: ${ev.tool} `) + C.dim(ev.args?.command || ev.args?.path || ''));
+      return;
+    }
     if (ev.type === 'action') {
       const tag = ev.model === 'pro' ? chalk.magenta(' [pro]') : '';
       console.log(pad + C.act(`▸ step ${ev.step}: ${ev.tool}`) + tag + C.dim(`  ${ev.thought || ''}`));
@@ -64,6 +70,12 @@ const res = await runAgentLoop(goal, {
       console.log(pad + C.dim('    📷 workspace snapshot taken (rollback armed)'));
     } else if (ev.type === 'rolledback') {
       console.log(pad + C.err('    ⏪ build failed — workspace rolled back'));
+    } else if (ev.type === 'verify_start') {
+      console.log(pad + chalk.blue('    🔍 independent verifier checking the claim (read-only, runs the code)...'));
+    } else if (ev.type === 'verify_end') {
+      console.log(pad + (ev.verified ? C.ok('    ✓ verified: ') : C.err('    ✗ NOT verified: ')) + C.dim((ev.reason || '').slice(0, 100)));
+    } else if (ev.type === 'verify_rejected') {
+      console.log(pad + C.err(`    ↩ finish rejected by verifier — agent must keep working`));
     } else if (ev.type === 'observation') {
       const head = (ev.observation || '').split('\n').slice(0, 4).join('\n' + pad + '    ');
       console.log(pad + (ev.ok ? C.ok('    ✓ ') : C.err('    ✗ ')) + C.dim(head));

@@ -284,6 +284,60 @@ async function callDeepSeek(messages, opts = {}) {
   return msg.content || '';
 }
 
+// ─── NATIVE TOOL-CALLING ────────────────────────────────────────────────────────
+// Returns the structured assistant message: { provider, content, toolCalls, finishReason }.
+// toolCalls is the OpenAI format: [{ id, type:'function', function:{ name, arguments(JSON string) }}].
+// `messages` must already be in OpenAI format (roles user/assistant/tool; assistant may carry tool_calls).
+async function callDeepSeekTools(messages, tools, opts = {}) {
+  const { default: axios } = await import('axios');
+  const isPro = opts.complex || opts.model === 'pro';
+  const body = {
+    model: isPro ? 'deepseek-v4-pro' : 'deepseek-v4-flash',
+    messages: [{ role: 'system', content: opts.systemPrompt || APEX_IDENTITY_PROMPT }, ...messages],
+    max_tokens: Math.max(opts.maxTokens || 8192, 512),
+    temperature: opts.temperature ?? 0.2,
+  };
+  if (tools && tools.length) { body.tools = tools; body.tool_choice = opts.tool_choice || 'auto'; }
+  const resp = await axios.post('https://api.deepseek.com/chat/completions', body, {
+    headers: { Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
+    timeout: 120000,
+  });
+  const m = resp.data?.choices?.[0]?.message || {};
+  return { provider: 'deepseek', content: m.content || '', toolCalls: m.tool_calls || [], finishReason: resp.data?.choices?.[0]?.finish_reason };
+}
+
+async function callGroqTools(messages, tools, opts = {}) {
+  const { default: axios } = await import('axios');
+  const body = {
+    model: 'llama-3.3-70b-versatile',
+    messages: [{ role: 'system', content: opts.systemPrompt || APEX_IDENTITY_PROMPT }, ...messages],
+    max_tokens: opts.maxTokens || 4096,
+    temperature: opts.temperature ?? 0.2,
+  };
+  if (tools && tools.length) { body.tools = tools; body.tool_choice = opts.tool_choice || 'auto'; }
+  const resp = await axios.post('https://api.groq.com/openai/v1/chat/completions', body, {
+    headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+    timeout: 30000,
+  });
+  const m = resp.data?.choices?.[0]?.message || {};
+  return { provider: 'groq', content: m.content || '', toolCalls: m.tool_calls || [], finishReason: resp.data?.choices?.[0]?.finish_reason };
+}
+
+export async function chatTools(messages, tools, opts = {}) {
+  const order = [...new Set([opts.forceProvider, 'deepseek', 'groq'].filter(p => p && PROVIDERS[p]?.available()))];
+  if (!order.length) throw new Error('No tool-calling-capable provider available (set DEEPSEEK_API_KEY or GROQ_API_KEY).');
+  let lastErr;
+  for (const p of order) {
+    try {
+      rateLimiter.record(p);
+      const r = p === 'groq' ? await callGroqTools(messages, tools, opts) : await callDeepSeekTools(messages, tools, opts);
+      bus.emit('llm:response', { provider: p, tokens: (r.content || '').length });
+      return r;
+    } catch (err) { lastErr = err; bus.emit('llm:error', { provider: p, error: err.message }); }
+  }
+  throw new Error(`All tool-calling providers failed. Last: ${lastErr?.message}`);
+}
+
 // ─── ROUTER ───────────────────────────────────────────────────────────────────
 
 function selectProvider(opts = {}) {
@@ -421,4 +475,4 @@ export function getStatus() {
   };
 }
 
-export default { chat, complete, structured, getStatus };
+export default { chat, complete, structured, getStatus, chatTools };

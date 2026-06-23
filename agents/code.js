@@ -182,6 +182,7 @@ Requirements:
       workspace: outputDir,
       maxSteps: 40,
       writeGuard: guard,
+      verify: true,            // an independent verifier must confirm the build before finish is accepted
       rollbackOnFailure: true, // existing project files are snapshotted (file copy) and restored if the build fails
       onEvent: (ev) => {
         if (ev.type === 'action') this.log(`build: ${ev.tool} ${ev.args?.path || ev.args?.command || ''}`);
