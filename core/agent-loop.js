@@ -11,6 +11,9 @@
 //   - file edits are exact diffs (search/replace), never blind full-file overwrites
 //   - generated code is syntax-checked on write and can be run + tested before it is trusted
 //   - every action returns a real observation the model must react to
+//   - it can navigate real, existing codebases: search (grep) + paged file reads
+//   - context compaction keeps long/complex tasks inside the model's window
+//   - flash→pro escalation: cruise on the cheap model, escalate to the pro reasoner when stuck
 //
 // All file tools are confined to a `workspace` root — the loop cannot escape it and touch
 // APEX's own source. That containment is what makes self-generation safe.
@@ -28,6 +31,8 @@ const SNAPSHOT_SKIP = new Set(['node_modules', '.git', '.apex-backup', 'sandbox'
 
 const MAX_OBS_CHARS = 12000;   // cap observation size fed back to the model
 const DEFAULT_MAX_STEPS = 30;
+const COMPACT_THRESHOLD = 30000; // when message history exceeds ~this many chars, compact older turns
+const KEEP_RECENT = 6;           // recent messages kept verbatim when compacting
 
 // ─── Tool protocol (described to the model) ────────────────────────────────────
 const TOOL_SPEC = `
@@ -40,16 +45,20 @@ You have these tools. Each turn, respond with EXACTLY ONE JSON object and NOTHIN
 Tools:
 - list_dir   { "path": "." }                      → list files/dirs (relative to workspace)
 - read_file  { "path": "src/x.js" }               → return file contents
+                 (page a big file with { "path": "src/x.js", "start": 1, "end": 80 })
+- search     { "query": "needle", "path": "." }   → find matching lines across the workspace.
+                 query is plain text (case-insensitive) or a /regex/i. Returns "file:line: text".
 - write_file { "path": "src/x.js", "content": "..." } → create/overwrite a whole file
 - edit_file  { "path": "src/x.js", "old": "<exact existing snippet>", "new": "<replacement>" }
-             → exact search/replace. "old" MUST appear verbatim exactly once. Use this for
-               changes to existing files instead of rewriting the whole file.
+             → exact search/replace. "old" MUST appear verbatim exactly once. Prefer this over
+               rewriting a whole file.
 - run        { "command": "node test.js" }        → run a shell command in the workspace, get stdout/stderr/exit code
 - finish     { "summary": "<what you accomplished>", "success": true }
 
 Rules:
 - Output ONLY the JSON object. No markdown fences, no prose around it.
 - Take ONE action per turn, then wait for the OBSERVATION before the next.
+- Explore before you edit: use list_dir / search / read_file to understand existing code first.
 - Verify your work by running it (use run). Don't call finish until it actually works.
 - When you write code, write the COMPLETE file content in write_file (no "// ..." placeholders).
 `.trim();
@@ -119,7 +128,54 @@ async function execTool(tool, args, workspace, guard) {
     case 'read_file': {
       const fp = safeResolve(workspace, args.path);
       if (!fs.existsSync(fp)) return { ok: false, observation: `No such file: ${args.path}` };
-      return { ok: true, observation: truncate(fs.readFileSync(fp, 'utf8')) };
+      const raw = fs.readFileSync(fp, 'utf8');
+      const lines = raw.split('\n');
+      if (args.start != null || args.end != null) {
+        const start = Math.max(1, parseInt(args.start ?? 1, 10) || 1);
+        const end = Math.min(lines.length, parseInt(args.end ?? lines.length, 10) || lines.length);
+        const slice = lines.slice(start - 1, end).map((l, i) => `${start + i}: ${l}`).join('\n');
+        return { ok: true, observation: truncate(slice) };
+      }
+      if (raw.length > MAX_OBS_CHARS) {
+        return { ok: true, observation: truncate(raw) + `\n[file has ${lines.length} lines; use read_file with {start,end} to page through it]` };
+      }
+      return { ok: true, observation: raw };
+    }
+    case 'search': {
+      const q = args.query;
+      if (!q) return { ok: false, observation: `search needs a "query" (plain text or /regex/i).` };
+      let re;
+      try {
+        const m = /^\/(.*)\/([a-z]*)$/.exec(q);
+        re = m ? new RegExp(m[1], m[2].includes('i') ? 'i' : '')
+               : new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      } catch { return { ok: false, observation: `invalid regex: ${q}` }; }
+      const base = safeResolve(workspace, args.path || '.');
+      const matches = [];
+      const MAX = 60;
+      const walk = (dir) => {
+        if (matches.length >= MAX) return;
+        let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+        for (const e of entries) {
+          if (matches.length >= MAX) break;
+          if (SNAPSHOT_SKIP.has(e.name)) continue;
+          const fp = path.join(dir, e.name);
+          if (e.isDirectory()) { walk(fp); continue; }
+          let st; try { st = fs.statSync(fp); } catch { continue; }
+          if (st.size > 1_000_000) continue;
+          let text; try { text = fs.readFileSync(fp, 'utf8'); } catch { continue; }
+          if (text.indexOf(String.fromCharCode(0)) !== -1) continue; // skip binary
+          const ls = text.split('\n');
+          for (let i = 0; i < ls.length; i++) {
+            if (re.test(ls[i])) {
+              matches.push(`${path.relative(path.resolve(workspace), fp)}:${i + 1}: ${ls[i].trim().slice(0, 200)}`);
+              if (matches.length >= MAX) break;
+            }
+          }
+        }
+      };
+      if (fs.existsSync(base)) walk(base);
+      return { ok: true, observation: matches.length ? matches.join('\n') + (matches.length >= MAX ? `\n[capped at ${MAX} matches]` : '') : `No matches for ${q}` };
     }
     case 'write_file': {
       const fp = safeResolve(workspace, args.path);
@@ -166,7 +222,7 @@ async function execTool(tool, args, workspace, guard) {
     case 'finish':
       return { ok: true, finish: true, summary: args.summary || '(no summary)', success: args.success !== false };
     default:
-      return { ok: false, observation: `Unknown tool "${tool}". Valid: list_dir, read_file, write_file, edit_file, run, finish.` };
+      return { ok: false, observation: `Unknown tool "${tool}". Valid: list_dir, read_file, search, write_file, edit_file, run, finish.` };
   }
 }
 
@@ -206,6 +262,33 @@ export function restoreWorkspace(backup, workspace) {
     fs.rmSync(path.join(workspace, entry), { recursive: true, force: true });
   }
   copyTree(backup, workspace);
+}
+
+// ─── Context compaction ─────────────────────────────────────────────────────────
+// Long/complex tasks would otherwise grow the message history until it overflows the model's
+// context window and quality collapses. When history gets large, summarize the older turns into
+// a compact "progress so far" note and keep only the most recent turns verbatim. This is what
+// lets the loop sustain very long, multi-step tasks — the single biggest enabler of complexity.
+export async function maybeCompact(messages, onEvent = () => {}, step = 0) {
+  const size = messages.reduce((n, m) => n + (m.content?.length || 0), 0);
+  if (size < COMPACT_THRESHOLD || messages.length <= KEEP_RECENT + 2) return messages;
+
+  const head = messages[0];                                  // the original TASK
+  const recent = messages.slice(-KEEP_RECENT);               // keep latest turns verbatim
+  const middle = messages.slice(1, messages.length - KEEP_RECENT);
+  const historyText = middle.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n').slice(0, 24000);
+
+  let summary;
+  try {
+    summary = await chat(
+      [{ role: 'user', content: `Summarize the agent's progress so it can continue WITHOUT the full history. Be concrete: files created/modified, key decisions, what is verified working, what still remains, and errors to avoid repeating.\n\nHISTORY:\n${historyText}` }],
+      { temperature: 0.1, maxTokens: 700 }
+    );
+  } catch {
+    return messages; // compaction is best-effort; never break the run over it
+  }
+  emit(onEvent, { type: 'compact', step, fromMessages: messages.length });
+  return [head, { role: 'user', content: `PROGRESS SUMMARY (earlier steps compacted):\n${summary}` }, ...recent];
 }
 
 // ─── The loop ──────────────────────────────────────────────────────────────────
@@ -263,16 +346,25 @@ export async function runAgentLoop(goal, opts = {}) {
   };
 
   const sys = systemPrompt(context);
-  const messages = [{ role: 'user', content: `TASK:\n${goal}\n\nThe workspace is "${path.resolve(workspace)}". Begin. Remember: respond with one JSON tool call.` }];
+  let messages = [{ role: 'user', content: `TASK:\n${goal}\n\nThe workspace is "${path.resolve(workspace)}". Begin. Remember: respond with one JSON tool call.` }];
   const transcript = [];
   let consecutiveParseFails = 0;
+  let errorStreak = 0;   // consecutive failed steps — when high, escalate flash → pro to think harder
 
   emit(onEvent, { type: 'start', goal, workspace: path.resolve(workspace) });
 
   for (let step = 1; step <= maxSteps; step++) {
+    messages = await maybeCompact(messages, onEvent, step);
+
+    // Smart model routing: cruise on cheap/fast flash; when the agent is stuck (repeated errors),
+    // escalate to the pro reasoning model for the next step to get unstuck. This is how a flash+pro
+    // pair punches above its weight — spend the expensive model only where it actually matters.
+    const stuck = errorStreak >= 2;
+    if (stuck) emit(onEvent, { type: 'escalate', step, to: 'pro', errorStreak });
+
     let raw;
     try {
-      raw = await chat(messages, { coding: true, temperature: 0.2, maxTokens: 8000, systemPrompt: sys, ...llmOpts });
+      raw = await chat(messages, { coding: !stuck, complex: stuck, temperature: 0.2, maxTokens: 8000, systemPrompt: sys, ...llmOpts });
     } catch (err) {
       emit(onEvent, { type: 'llm_error', step, error: err.message });
       return finalize({ success: false, summary: `LLM call failed: ${err.message}`, steps: step - 1, transcript });
@@ -281,6 +373,7 @@ export async function runAgentLoop(goal, opts = {}) {
     const call = extractToolCall(raw);
     if (!call || !call.tool) {
       consecutiveParseFails++;
+      errorStreak++;
       emit(onEvent, { type: 'parse_fail', step, raw: truncate(raw, 400) });
       if (consecutiveParseFails >= 3) {
         return finalize({ success: false, summary: 'Model failed to produce a valid tool call 3 times.', steps: step, transcript });
@@ -290,8 +383,9 @@ export async function runAgentLoop(goal, opts = {}) {
       continue;
     }
     consecutiveParseFails = 0;
+    const wasEscalated = stuck;
 
-    emit(onEvent, { type: 'action', step, thought: call.thought, tool: call.tool, args: call.args });
+    emit(onEvent, { type: 'action', step, thought: call.thought, tool: call.tool, args: call.args, model: wasEscalated ? 'pro' : 'flash' });
     bus.emit('agentloop:action', { step, tool: call.tool });
 
     let result;
@@ -310,6 +404,7 @@ export async function runAgentLoop(goal, opts = {}) {
       return finalize({ success: result.success, summary: result.summary, steps: step, transcript });
     }
 
+    errorStreak = result.ok ? 0 : (errorStreak + 1);
     emit(onEvent, { type: 'observation', step, ok: result.ok, observation: truncate(result.observation, 800) });
 
     // feed the real result back to the model

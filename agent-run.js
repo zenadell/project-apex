@@ -39,10 +39,20 @@ const res = await runAgentLoop(goal, {
   maxSteps,
   onEvent(ev) {
     if (ev.type === 'action') {
-      console.log(C.act(`▸ step ${ev.step}: ${ev.tool}`) + C.dim(`  ${ev.thought || ''}`));
+      const tag = ev.model === 'pro' ? chalk.magenta(' [pro]') : '';
+      console.log(C.act(`▸ step ${ev.step}: ${ev.tool}`) + tag + C.dim(`  ${ev.thought || ''}`));
       const a = ev.args || {};
       if (a.path) console.log(C.dim(`    path: ${a.path}`));
+      if (a.query) console.log(C.dim(`    search: ${a.query}`));
       if (a.command) console.log(C.dim(`    $ ${a.command}`));
+    } else if (ev.type === 'escalate') {
+      console.log(C.info(`    ⤴ stuck (${ev.errorStreak} errors) — escalating to pro reasoner`));
+    } else if (ev.type === 'compact') {
+      console.log(C.info(`    ⧉ context compacted (${ev.fromMessages} msgs → summary + recent)`));
+    } else if (ev.type === 'snapshot') {
+      console.log(C.dim('    📷 workspace snapshot taken (rollback armed)'));
+    } else if (ev.type === 'rolledback') {
+      console.log(C.err('    ⏪ build failed — workspace rolled back'));
     } else if (ev.type === 'observation') {
       const head = (ev.observation || '').split('\n').slice(0, 4).join('\n    ');
       console.log((ev.ok ? C.ok('    ✓ ') : C.err('    ✗ ')) + C.dim(head));
