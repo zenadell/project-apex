@@ -17,12 +17,14 @@
 
 import { chat } from './llm.js';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import bus from './event-bus.js';
 
 const execAsync = promisify(exec);
+const SNAPSHOT_SKIP = new Set(['node_modules', '.git', '.apex-backup', 'sandbox']);
 
 const MAX_OBS_CHARS = 12000;   // cap observation size fed back to the model
 const DEFAULT_MAX_STEPS = 30;
@@ -179,6 +181,33 @@ async function syntaxNote(fp) {
   }
 }
 
+// ─── Workspace snapshot / rollback (file-based, NEVER touches git) ──────────────
+function copyTree(src, dst) {
+  fs.mkdirSync(dst, { recursive: true });
+  for (const entry of fs.readdirSync(src)) {
+    if (SNAPSHOT_SKIP.has(entry)) continue;
+    const s = path.join(src, entry), d = path.join(dst, entry);
+    const st = fs.statSync(s);
+    if (st.isDirectory()) copyTree(s, d);
+    else fs.copyFileSync(s, d);
+  }
+}
+
+export function snapshotWorkspace(workspace) {
+  const backup = path.join(os.tmpdir(), `apex-snap-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  copyTree(workspace, backup);
+  return backup;
+}
+
+export function restoreWorkspace(backup, workspace) {
+  // Remove everything the run may have created/changed (except skipped dirs), then copy the snapshot back.
+  for (const entry of fs.readdirSync(workspace)) {
+    if (SNAPSHOT_SKIP.has(entry)) continue;
+    fs.rmSync(path.join(workspace, entry), { recursive: true, force: true });
+  }
+  copyTree(backup, workspace);
+}
+
 // ─── The loop ──────────────────────────────────────────────────────────────────
 /**
  * Run an autonomous tool-calling loop until the model finishes or steps run out.
@@ -192,7 +221,10 @@ async function syntaxNote(fp) {
  * @param {function} [opts.writeGuard] async ({path, fullPath, content}) => {ok, observation};
  *                                    vets every write_file/edit_file before it touches disk
  *                                    (e.g. Warden). Return {ok:false, observation} to reject.
- * @returns {Promise<{success, summary, steps, transcript}>}
+ * @param {boolean} [opts.rollbackOnFailure] snapshot the workspace (file copy, NOT git) before
+ *                                    the run and restore it if the loop fails. Only snapshots
+ *                                    when the workspace already has content worth protecting.
+ * @returns {Promise<{success, summary, steps, transcript, rolledBack?}>}
  */
 export async function runAgentLoop(goal, opts = {}) {
   const {
@@ -202,10 +234,33 @@ export async function runAgentLoop(goal, opts = {}) {
     onEvent = () => {},
     llmOpts = {},
     writeGuard = null,   // optional async ({path, fullPath, content}) => {ok, observation} — vets every write/edit
+    rollbackOnFailure = false,
   } = opts;
 
   if (!workspace) throw new Error('runAgentLoop requires a workspace directory');
-  fs.mkdirSync(path.resolve(workspace), { recursive: true });
+  const wsRoot = path.resolve(workspace);
+  fs.mkdirSync(wsRoot, { recursive: true });
+
+  // Opt-in safety: snapshot existing workspace content so a failed run can be rolled back.
+  // Pure file copy — it never runs git, so it cannot disturb any surrounding repository.
+  let backup = null;
+  if (rollbackOnFailure) {
+    try {
+      const hasContent = fs.readdirSync(wsRoot).some(e => !SNAPSHOT_SKIP.has(e));
+      if (hasContent) { backup = snapshotWorkspace(wsRoot); emit(onEvent, { type: 'snapshot', backup }); }
+    } catch { /* snapshot best-effort */ }
+  }
+
+  // Single exit point: restore on failure, drop the snapshot on success.
+  const finalize = (result) => {
+    if (backup) {
+      if (!result.success) {
+        try { restoreWorkspace(backup, wsRoot); result.rolledBack = true; emit(onEvent, { type: 'rolledback' }); } catch {}
+      }
+      try { fs.rmSync(backup, { recursive: true, force: true }); } catch {}
+    }
+    return result;
+  };
 
   const sys = systemPrompt(context);
   const messages = [{ role: 'user', content: `TASK:\n${goal}\n\nThe workspace is "${path.resolve(workspace)}". Begin. Remember: respond with one JSON tool call.` }];
@@ -220,7 +275,7 @@ export async function runAgentLoop(goal, opts = {}) {
       raw = await chat(messages, { coding: true, temperature: 0.2, maxTokens: 8000, systemPrompt: sys, ...llmOpts });
     } catch (err) {
       emit(onEvent, { type: 'llm_error', step, error: err.message });
-      return { success: false, summary: `LLM call failed: ${err.message}`, steps: step - 1, transcript };
+      return finalize({ success: false, summary: `LLM call failed: ${err.message}`, steps: step - 1, transcript });
     }
 
     const call = extractToolCall(raw);
@@ -228,7 +283,7 @@ export async function runAgentLoop(goal, opts = {}) {
       consecutiveParseFails++;
       emit(onEvent, { type: 'parse_fail', step, raw: truncate(raw, 400) });
       if (consecutiveParseFails >= 3) {
-        return { success: false, summary: 'Model failed to produce a valid tool call 3 times.', steps: step, transcript };
+        return finalize({ success: false, summary: 'Model failed to produce a valid tool call 3 times.', steps: step, transcript });
       }
       messages.push({ role: 'assistant', content: raw || '' });
       messages.push({ role: 'user', content: 'That was not a valid tool call. Respond with EXACTLY one JSON object: {"thought":"...","tool":"...","args":{...}} and nothing else.' });
@@ -239,13 +294,20 @@ export async function runAgentLoop(goal, opts = {}) {
     emit(onEvent, { type: 'action', step, thought: call.thought, tool: call.tool, args: call.args });
     bus.emit('agentloop:action', { step, tool: call.tool });
 
-    const result = await execTool(call.tool, call.args, workspace, writeGuard);
+    let result;
+    try {
+      result = await execTool(call.tool, call.args, workspace, writeGuard);
+    } catch (err) {
+      // Any tool error (e.g. a path escaping the workspace) becomes a recoverable observation
+      // the model can react to — it must never crash the whole loop.
+      result = { ok: false, observation: `Tool "${call.tool}" error: ${err.message}` };
+    }
     transcript.push({ step, thought: call.thought, tool: call.tool, args: call.args, result });
 
     if (result.finish) {
       emit(onEvent, { type: 'finish', step, summary: result.summary, success: result.success });
       bus.emit('agentloop:finish', { success: result.success, summary: result.summary });
-      return { success: result.success, summary: result.summary, steps: step, transcript };
+      return finalize({ success: result.success, summary: result.summary, steps: step, transcript });
     }
 
     emit(onEvent, { type: 'observation', step, ok: result.ok, observation: truncate(result.observation, 800) });
@@ -256,7 +318,7 @@ export async function runAgentLoop(goal, opts = {}) {
   }
 
   emit(onEvent, { type: 'max_steps', steps: maxSteps });
-  return { success: false, summary: `Reached max steps (${maxSteps}) without finishing.`, steps: maxSteps, transcript };
+  return finalize({ success: false, summary: `Reached max steps (${maxSteps}) without finishing.`, steps: maxSteps, transcript });
 }
 
 function emit(cb, ev) { try { cb(ev); } catch {} }

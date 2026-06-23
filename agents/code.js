@@ -182,9 +182,11 @@ Requirements:
       workspace: outputDir,
       maxSteps: 40,
       writeGuard: guard,
+      rollbackOnFailure: true, // existing project files are snapshotted (file copy) and restored if the build fails
       onEvent: (ev) => {
         if (ev.type === 'action') this.log(`build: ${ev.tool} ${ev.args?.path || ev.args?.command || ''}`);
         else if (ev.type === 'finish') this.log(`build ${ev.success ? 'succeeded' : 'ended'}: ${ev.summary}`);
+        else if (ev.type === 'rolledback') this.log('build failed — workspace rolled back to pre-build snapshot', 'warn');
       },
     });
 

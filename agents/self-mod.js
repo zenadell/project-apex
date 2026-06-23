@@ -6,7 +6,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from 
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import Memory from '../core/memory.js';
 import bus from '../core/event-bus.js';
 
@@ -237,6 +237,7 @@ Implementation hints: ${implementation || '(none)'}
 Requirements:
 - Write the COMPLETE Node.js ES module to ${fileName}. Use "export default" for the main class or function.
 - Import only Node built-ins or packages that are actually installed.
+- You can only read/write files INSIDE the workspace (the plugins directory); the relative import '../core/llm.js' still resolves at RUNTIME.
 - Verify it loads by running:
   node --input-type=module -e "import('./${fileName}').then(()=>console.log('IMPORT_OK')).catch(e=>{console.error(e);process.exit(1)})"
 - Do NOT call finish until you have actually seen IMPORT_OK in the output.`;
@@ -265,75 +266,60 @@ Requirements:
     return { name, description, path: filePath, integrated: true, verified: true };
   }
 
-  // Create a new agent autonomously
+  // Create a new agent autonomously via the agentic loop — real execution + verification.
+  // (The old version saved a single complete() reply to disk; this one writes the file through
+  //  the loop, Warden-gated, and won't finish until the agent imports AND constructs cleanly.)
   async createAgent({ name, description, implementation = '', systemPrompt = '' }) {
-    this.log(`Creating dynamic agent: ${name}`);
+    const { runAgentLoop } = await import('../core/agent-loop.js');
+    const slug = (name || 'agent').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-');
+    const fileName = `${slug}-agent.js`;
+    this.log(`Forging agent "${name}" → plugins/${fileName} (agentic loop)...`);
 
-    let agentCode = await complete(
-      `Write a complete APEX agent file for:
-
+    const goal = `Build a new APEX agent in the file "${fileName}".
 Agent name: ${name}
 Description: ${description}
-Implementation hints: ${implementation}
+Implementation hints: ${implementation || '(none)'}
 
-The agent MUST:
-1. Import BaseAgent from the PROJECT ROOT agents folder.
-2. Extend BaseAgent.
-3. Use ES Modules (export default class).
-4. Implement async run(task) method.
-5. Use the LLM: import { complete, structured } from '../core/llm.js'
-6. Call this.log(), this.remember(), this.recall() appropriately.
+The agent file MUST:
+- import { BaseAgent } from '../agents/base-agent.js';
+- export default a class that extends BaseAgent and calls super({ name: '${name}', type: 'self_generated', description: '...' }) in its constructor;
+- be an ES module and implement "async run(task)";
+- it MAY use the LLM via: import { complete, structured } from '../core/llm.js';
+- use this.log(), this.remember(), this.recall() where useful.
 
-Return ONLY the code.`,
-      { temperature: 0.1, maxTokens: 4000 }
-    );
+IMPORTANT: you can only read/write files INSIDE the workspace (the plugins directory). Do NOT try to open files outside it. The relative imports '../agents/base-agent.js' and '../core/llm.js' resolve correctly at RUNTIME even though you cannot read them from here. BaseAgent's contract: constructor({ name, type, description }); methods this.log(msg), this.remember(content, { tags, importance, scope }), this.recall(query); and you implement async run(task).
 
-    // Strip markdown formatting
-    agentCode = agentCode.replace(/^```javascript\n/, '').replace(/^```js\n/, '').replace(/^```\n/, '').replace(/\n```$/, '').trim();
+Verify it loads AND constructs by running this exact command with the run tool:
+  node --input-type=module -e "import('./${fileName}').then(async m=>{const A=m.default; const a=new A(); if(typeof a.run!=='function')throw new Error('missing run()'); console.log('AGENT_OK')}).catch(e=>{console.error(e);process.exit(1)})"
+Do NOT call finish until you have actually seen AGENT_OK printed.`;
 
-    // Test the agent in the sandbox chamber
-    const testResult = await this._testGeneratedCode(agentCode, name, 'agent');
-    if (!testResult.success) {
-      const fixedCode = await complete(
-        `Fix this agent code:\n\nError: ${testResult.error}\n\nOriginal code:\n${agentCode}\n\nReturn ONLY the fixed code, no markdown.`,
-        { temperature: 0.1, maxTokens: 4000 }
-      );
-      const retestResult = await this._testGeneratedCode(fixedCode, name, 'agent');
-      if (!retestResult.success) {
-        throw new Error(`Failed to create functioning agent after 2 attempts. Error: ${retestResult.error}`);
-      }
-      agentCode = fixedCode;
-    }
-
-    const pluginPath = path.join(PLUGINS_DIR, `${name.toLowerCase().replace(/\s+/g, '-')}-agent.js`);
-    writeFileSync(pluginPath, agentCode);
-
-    // Register in memory
-    Memory.registerCapability({
-      name,
-      description,
-      type: 'self_generated',
-      path: pluginPath,
+    const res = await runAgentLoop(goal, {
+      workspace: PLUGINS_DIR,
+      maxSteps: 18,
+      writeGuard: await this._wardenGuard(),
+      onEvent: (ev) => { if (ev.type === 'action') this.log(`forge-agent: ${ev.tool} ${ev.args?.path || ev.args?.command || ''}`); },
     });
 
-    // Auto-load into registry
+    const pluginPath = path.join(PLUGINS_DIR, fileName);
+    if (!res.success || !existsSync(pluginPath)) {
+      throw new Error(`Failed to forge a working agent "${name}": ${res.summary}`);
+    }
+
+    Memory.registerCapability({ name, description, type: 'self_generated', path: pluginPath });
+
+    // Auto-load into the live registry
     try {
-      const { default: AgentClass } = await import(`${pluginPath}?t=${Date.now()}`);
+      const { default: AgentClass } = await import(`${pathToFileURL(pluginPath).href}?t=${Date.now()}`);
       const { registry } = await import('../core/agent-registry.js');
-      const instance = new AgentClass();
-      registry.register(instance);
+      registry.register(new AgentClass());
       this.log(`✅ Agent "${name}" created and registered live`);
       bus.emit('selfmod:agent_created', { name, path: pluginPath });
     } catch (err) {
       this.log(`Agent created but failed to auto-load: ${err.message}`, 'warn');
     }
 
-    this.remember(
-      `Created new agent: ${name} — ${description}`,
-      { tags: ['self_mod', 'agent_created'], importance: 9, scope: 'long_term' }
-    );
-
-    return { name, description, path: pluginPath, loaded: true };
+    this.remember(`Created new agent: ${name} — ${description}`, { tags: ['self_mod', 'agent_created'], importance: 9, scope: 'long_term' });
+    return { name, description, path: pluginPath, loaded: true, verified: true };
   }
 
   async _testGeneratedCode(code, name, type = 'tool') {
