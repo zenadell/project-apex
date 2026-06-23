@@ -51,11 +51,11 @@ const ALL_TOOL_DEFS = {
   run:        { description: 'Run a shell command in the workspace; returns stdout, stderr, and exit code.', params: { command: { type: 'string' } }, required: ['command'] },
   plan:       { description: 'Declare or replace your checklist for a multi-part task.', params: { todos: { type: 'array', items: { type: 'string' } } }, required: ['todos'] },
   todo:       { description: 'Update one checklist item status.', params: { index: { type: 'integer' }, status: { type: 'string', enum: ['pending', 'in_progress', 'done'] } }, required: ['index', 'status'] },
-  delegate:   { description: 'Hand a self-contained sub-task to a fresh sub-agent (its own context, same workspace); returns a summary.', params: { task: { type: 'string' }, context: { type: 'string' } }, required: ['task'] },
+  delegate:   { description: 'Hand off sub-task(s) to fresh sub-agent(s) — each gets its own clean context in the same workspace. Use "task" for one, or "tasks" (array) to run several IN PARALLEL (only when they touch DIFFERENT files). Returns summaries.', params: { task: { type: 'string' }, tasks: { type: 'array', items: { type: 'string' } }, context: { type: 'string' } }, required: [] },
   finish:     { description: 'Finish the task — only after you have actually run the code/tests and confirmed success.', params: { summary: { type: 'string' }, success: { type: 'boolean' } }, required: ['summary'] },
 };
 
-function buildToolSchemas(allowed) {
+export function buildToolSchemas(allowed) {
   const names = allowed && allowed.length ? allowed : Object.keys(ALL_TOOL_DEFS);
   return names.filter(n => ALL_TOOL_DEFS[n]).map(name => ({
     type: 'function',
@@ -63,7 +63,7 @@ function buildToolSchemas(allowed) {
   }));
 }
 
-function safeParseArgs(s) {
+export function safeParseArgs(s) {
   if (s == null) return {};
   if (typeof s === 'object') return s;
   try { return JSON.parse(s); } catch {}
@@ -85,7 +85,7 @@ ${STRATEGY}`;
 }
 
 // ─── Robust extraction of a single JSON object from model output ───────────────
-function extractToolCall(raw) {
+export function extractToolCall(raw) {
   if (!raw || typeof raw !== 'string') return null;
   let s = raw.trim();
   // strip code fences if the model wrapped the JSON
@@ -112,7 +112,7 @@ function extractToolCall(raw) {
 }
 
 // ─── Workspace-confined path resolution ────────────────────────────────────────
-function safeResolve(workspace, p) {
+export function safeResolve(workspace, p) {
   const root = path.resolve(workspace);
   const full = path.resolve(root, p || '.');
   if (full !== root && !full.startsWith(root + path.sep)) {
@@ -347,22 +347,38 @@ function updatePlan(tool, args, todos, onEvent, depth) {
 // almost no context. This is the mechanism that lets APEX scale to arbitrarily complex work.
 async function runDelegate(args, cfg) {
   const { workspace, writeGuard, llmOpts, depth, maxDepth, maxSteps, onEvent } = cfg;
-  const task = args.task || args.goal;
-  if (!task) return { ok: false, observation: 'delegate needs a "task" (a self-contained sub-task description).' };
   if (depth >= maxDepth) {
     return { ok: false, observation: `Delegation depth limit (${maxDepth}) reached — do this sub-task yourself with the file/run tools.` };
   }
 
+  const spawn = (task, branch) => {
+    const childOnEvent = (ev) => emit(onEvent, { ...ev, depth: (ev.depth ?? depth) + 1, viaDelegate: true, ...(branch != null ? { branch } : {}) });
+    return runAgentLoop(String(task), {
+      workspace, writeGuard, llmOpts,
+      maxSteps: Math.min(maxSteps, 25),
+      depth: depth + 1, maxDepth,
+      context: args.context ? `Handoff from the parent agent:\n${args.context}` : '',
+      onEvent: childOnEvent,
+    }).catch(err => ({ success: false, summary: `error: ${err.message}`, steps: 0 }));
+  };
+
+  // PARALLEL: run several independent sub-tasks concurrently (the model is told to use this only
+  // when they touch DIFFERENT files). Big speedup on large projects — the front-tier agent move.
+  const tasks = Array.isArray(args.tasks) ? args.tasks.filter(t => t && String(t).trim()) : null;
+  if (tasks && tasks.length) {
+    emit(onEvent, { type: 'delegate_start', depth, task: `${tasks.length} parallel sub-tasks`, parallel: true });
+    const children = await Promise.all(tasks.map((t, i) => spawn(t, i)));
+    const okCount = children.filter(c => c.success).length;
+    const lines = children.map((c, i) => `  [${i}] ${c.success ? 'OK' : 'FAIL'} (${c.steps} steps): ${c.summary}`);
+    emit(onEvent, { type: 'delegate_end', depth, success: okCount === children.length, summary: `${okCount}/${children.length} parallel sub-agents succeeded` });
+    return { ok: okCount === children.length, observation: `Parallel sub-agents (${okCount}/${children.length} ok):\n${lines.join('\n')}` };
+  }
+
+  // SINGLE
+  const task = args.task || args.goal;
+  if (!task) return { ok: false, observation: 'delegate needs "task" (one sub-task) or "tasks" (an array, run in parallel).' };
   emit(onEvent, { type: 'delegate_start', depth, task });
-  const childOnEvent = (ev) => emit(onEvent, { ...ev, depth: (ev.depth ?? depth) + 1, viaDelegate: true });
-  const child = await runAgentLoop(task, {
-    workspace, writeGuard, llmOpts,
-    maxSteps: Math.min(maxSteps, 25),
-    depth: depth + 1,
-    maxDepth,
-    context: args.context ? `Handoff from the parent agent:\n${args.context}` : '',
-    onEvent: childOnEvent,
-  });
+  const child = await spawn(task, null);
   emit(onEvent, { type: 'delegate_end', depth, success: child.success, summary: child.summary, steps: child.steps });
   const head = child.success ? 'Sub-agent COMPLETED' : 'Sub-agent did NOT finish';
   return { ok: child.success, observation: `${head} (${child.steps} steps): ${child.summary}` };
