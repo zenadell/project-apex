@@ -14,7 +14,9 @@ export default class WardenAgent extends BaseAgent {
   }
 
   async run(task) {
-    const { fileContent, filePath, isSelfModifying } = task;
+    // validateOnly: return the verdict WITHOUT writing the file (used by the agentic loop,
+    // which does its own writing). Default false preserves the original write-through behavior.
+    const { fileContent, filePath, isSelfModifying, validateOnly = false } = task;
     this.log(`Intercepting write attempt to: ${filePath}`);
 
     const issues = [];
@@ -92,6 +94,10 @@ export default class WardenAgent extends BaseAgent {
 
     // VERDICT — no LLM involved, purely deterministic
     if (issues.length === 0) {
+      if (validateOnly) {
+        this.log(`✅ Passed Audit (validate-only): ${filePath}`);
+        return { success: true, message: 'Code passed deterministic Warden audit.' };
+      }
       this.log(`✅ Passed Audit. Promoting to live filesystem: ${filePath}`);
       const dir = path.dirname(filePath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

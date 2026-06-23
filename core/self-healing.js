@@ -112,7 +112,9 @@ export class SelfHealingLoop {
   async _testLLM() {
     try {
       const start = Date.now();
-      const resp = await complete('Say: OK', { temperature: 0, maxTokens: 5, simple: true });
+      // NOTE: must leave enough budget — reasoning models spend tokens before emitting content,
+      // so a tiny maxTokens returns an empty string and falsely reports the LLM as dead.
+      const resp = await complete('Reply with exactly: OK', { temperature: 0, maxTokens: 64, simple: true });
       const ok = typeof resp === 'string' && resp.length > 0;
       bus.emit('healing:llm_test', { ok, latencyMs: Date.now() - start });
       if (!ok) console.log(chalk.yellow('⚕️  LLM test returned empty'));

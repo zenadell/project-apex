@@ -265,7 +265,9 @@ async function callDeepSeek(messages, opts = {}) {
     {
       model: modelName,
       messages: [systemMsg, ...formattedMsgs],
-      max_tokens: opts.maxTokens || 8192,
+      // DeepSeek V4 is a REASONING model: reasoning tokens count against max_tokens and are
+      // emitted BEFORE the answer. Too small a budget → `content` comes back EMPTY. Floor it.
+      max_tokens: Math.max(opts.maxTokens || 8192, 512),
       temperature: opts.temperature ?? (isPro ? 0.3 : 0.7), // Pro gets lower temp for logic
     },
     {
@@ -276,7 +278,10 @@ async function callDeepSeek(messages, opts = {}) {
       timeout: 120000, // DeepSeek Pro reasoning might take time
     }
   );
-  return resp.data.choices[0].message.content;
+  // `content` is the answer; `reasoning_content` is the scratchpad. Coalesce safely so a
+  // null/undefined never propagates to callers as a crash.
+  const msg = resp.data?.choices?.[0]?.message || {};
+  return msg.content || '';
 }
 
 // ─── ROUTER ───────────────────────────────────────────────────────────────────

@@ -220,31 +220,49 @@ Identify the most important missing capabilities that would make APEX more power
     }
   }
 
-  // Create a new tool autonomously using ApexForge Engine
+  // Create a new tool autonomously via the agentic loop — real execution + verification,
+  // NOT prose-to-disk. The loop writes into plugins/ and proves the tool actually imports.
+  // (The old version saved the model's chat reply straight to a .js file, which is exactly
+  //  what produced corrupted plugins. complete() has no tools and cannot "verify" anything.)
   async createTool({ name, description, implementation = '' }) {
-    this.log(`Creating tool: ${name} via ApexForge (Hermes)...`);
+    const { runAgentLoop } = await import('../core/agent-loop.js');
+    const slug = (name || 'new-tool').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+    const fileName = `${slug}.js`;
+    this.log(`Forging tool "${name}" → plugins/${fileName} (agentic loop)...`);
 
-    const prompt = `Objective: Build a new APEX tool called ${name}.
+    const goal = `Build an APEX plugin tool in the file "${fileName}".
 Description: ${description}
-Implementation hints: ${implementation}
+Implementation hints: ${implementation || '(none)'}
 
-Constraints:
-1. Write a complete Node.js ES Module to a new file in plugins/${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.js.
-2. It must export default class or function.
-3. Use your tools to execute it and verify it has no syntax errors.
+Requirements:
+- Write the COMPLETE Node.js ES module to ${fileName}. Use "export default" for the main class or function.
+- Import only Node built-ins or packages that are actually installed.
+- Verify it loads by running:
+  node --input-type=module -e "import('./${fileName}').then(()=>console.log('IMPORT_OK')).catch(e=>{console.error(e);process.exit(1)})"
+- Do NOT call finish until you have actually seen IMPORT_OK in the output.`;
 
-You are the ApexForge Engine. Do not stop until the tool is written to disk and verified.`;
+    const res = await runAgentLoop(goal, {
+      workspace: PLUGINS_DIR,
+      maxSteps: 16,
+      writeGuard: await this._wardenGuard(),
+      onEvent: (ev) => {
+        if (ev.type === 'action') this.log(`forge: ${ev.tool} ${ev.args?.path || ev.args?.command || ''}`);
+      },
+    });
 
-    try {
-      const code = await complete(prompt);
-      const filename = path.join(PLUGINS_DIR, `${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.js`);
-      writeFileSync(filename, code, 'utf8');
-      this.log(`✅ ApexForge successfully synthesized tool: ${name}`);
-    } catch (err) {
-      throw new Error(`ApexForge failed to generate tool ${name}: ${err.message}`);
+    const filePath = path.join(PLUGINS_DIR, fileName);
+    if (!res.success || !existsSync(filePath)) {
+      throw new Error(`ApexForge could not build a working tool "${name}": ${res.summary}`);
     }
 
-    return { name, description, integrated: true };
+    Memory.registerCapability({ name, description, type: 'self_generated', path: filePath });
+    this._pluginRegistry[name] = { path: filePath, description, created: Date.now() };
+    this._savePluginRegistry();
+    bus.emit('selfmod:tool_created', { name, path: filePath });
+    this.remember(`Created new tool: ${name} — ${description}`, { tags: ['self_mod', 'tool_created'], importance: 8, scope: 'long_term' });
+    this.log(`✅ Tool "${name}" forged & verified (IMPORT_OK): plugins/${fileName}`);
+
+    return { name, description, path: filePath, integrated: true, verified: true };
   }
 
   // Create a new agent autonomously
@@ -464,6 +482,24 @@ Return ONLY the code.`,
   _savePluginRegistry() {
     const registryPath = path.join(PLUGINS_DIR, '_registry.json');
     writeFileSync(registryPath, JSON.stringify(this._pluginRegistry, null, 2));
+  }
+
+  // Warden-backed write guard for the agentic loop — every forged file is deterministically vetted
+  // (narrative-dump detection, dangerous patterns, core-file protection) before it touches disk.
+  async _wardenGuard() {
+    try {
+      const registry = (await import('../core/agent-registry.js')).default;
+      const warden = registry.get('WardenAgent');
+      if (!warden) return null;
+      return async ({ fullPath, content }) => {
+        try {
+          const res = await warden.run({ filePath: fullPath, fileContent: content, isSelfModifying: false, validateOnly: true });
+          if (res.success) return { ok: true };
+          const detail = (res.issues || []).map(i => `- ${i.type}: ${i.description}${i.fix ? ` (fix: ${i.fix})` : ''}`).join('\n');
+          return { ok: false, observation: `Warden REJECTED this write:\n${detail}\nFix these issues and write again.` };
+        } catch { return { ok: true }; }
+      };
+    } catch { return null; }
   }
 }
 

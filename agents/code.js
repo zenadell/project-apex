@@ -3,7 +3,7 @@
 import { BaseAgent } from './base-agent.js';
 import { complete, structured } from '../core/llm.js';
 import { execSync, exec } from 'child_process';
-import { writeFileSync, mkdirSync, existsSync, readFileSync, statSync, readdirSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync, statSync, readdirSync, unlinkSync } from 'fs';
 import { promisify } from 'util';
 import path from 'path';
 import bus from '../core/event-bus.js';
@@ -26,15 +26,50 @@ export class CodeAgent extends BaseAgent {
     const { objective, context = '', outputDir = null, language = 'auto', type = 'project' } = task;
     this.log(`CodeAgent activated: "${objective}"`);
 
-    // PHASE 0: Detect project context (ESM vs CJS, existing deps)
+    // PHASE 0: Detect project context (ESM vs CJS, existing deps, language)
     const projectContext = outputDir ? this._detectProjectContext(outputDir) : '';
 
+    // DETECT: Is this a "modify existing code" task?
+    const isModifyTask = type === 'modify' || this._isModifyObjective(objective, outputDir);
+    if (isModifyTask && outputDir) {
+      this.log('Detected MODIFY task — reading existing code and applying surgical changes');
+      return this._modifyExistingCode(objective, outputDir, context + '\n' + projectContext);
+    }
+
+    // PHASE 0.5: Research-before-code — if objective mentions unfamiliar tools, research first
+    let researchContext = '';
+    const researchAgent = registry.get('ResearchAgent');
+    if (researchAgent) {
+      try {
+        const needsResearch = await structured(
+          `Does this task require knowledge of specific APIs/libraries that an LLM might not have accurate data for?\nTask: "${objective}"\nRespond with whether research is needed and what to research.`,
+          { needsResearch: false, topics: ['topic to research'] },
+          { temperature: 0.1, timeout: 10000 }
+        );
+        if (needsResearch.needsResearch && needsResearch.topics?.length > 0) {
+          this.log(`📚 Researching: ${needsResearch.topics.join(', ')}`);
+          const research = await researchAgent.run({ objective: `Find current API docs and examples for: ${needsResearch.topics.join(', ')}.`, type: 'quick' });
+          researchContext = `\nRESEARCH CONTEXT:\n${JSON.stringify(research).slice(0, 3000)}`;
+        }
+      } catch { /* research failed, continue without it */ }
+    }
+
     // PHASE 1: Architecture planning
-    const architecture = await this._planArchitecture(objective, context + '\n' + projectContext, language, type);
+    const fullContext = context + '\n' + projectContext + researchContext;
+    const architecture = await this._planArchitecture(objective, fullContext, language, type);
     this.log(`Architecture planned: ${architecture.stack?.join(', ')}`);
 
-    // PHASE 2: Code generation — per-file, with project context
-    const files = await this._generateCode(objective, architecture, context + '\n' + projectContext, outputDir);
+    // PHASE 2 (primary): build via the agentic loop — real tool execution, Warden-gated writes,
+    // and run-and-test verification with ground-truth feedback. Falls back to the classic
+    // generate→write→test pipeline below if disabled (APEX_LOOP_BUILD=false) or if it doesn't converge.
+    if (outputDir && process.env.APEX_LOOP_BUILD !== 'false') {
+      const loopResult = await this._buildViaLoop(objective, outputDir, fullContext, architecture);
+      if (loopResult) return loopResult;
+      this.log('Loop build unavailable/failed — falling back to classic pipeline', 'warn');
+    }
+
+    // PHASE 2 (fallback): Code generation — per-file, with project + research context
+    const files = await this._generateCode(objective, architecture, fullContext, outputDir);
     this.log(`Generated ${files.length} files`);
 
     // PHASE 3-6: Write → Test → Fix → Re-test (OBSERVE-ACT-RETRY LOOP)
@@ -114,35 +149,185 @@ export class CodeAgent extends BaseAgent {
     return { objective, architecture, files, outputDir };
   }
 
+  // Build a project via the agentic loop: the model reads/writes/runs in the output dir with
+  // ground-truth feedback, every write vetted by Warden, and must actually run + pass a check
+  // before finishing. Returns a result on success, or null to signal "fall back to classic".
+  async _buildViaLoop(objective, outputDir, fullContext = '', architecture = null) {
+    let runAgentLoop;
+    try {
+      ({ runAgentLoop } = await import('../core/agent-loop.js'));
+    } catch (err) {
+      this.log(`agent-loop unavailable: ${err.message}`, 'warn');
+      return null;
+    }
+    if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
+
+    const guard = this._makeWardenGuard();
+    const archHint = architecture
+      ? `\n\nPlanned architecture (guidance — adapt as needed):\n${JSON.stringify(architecture).slice(0, 1500)}`
+      : '';
+
+    const goal = `Build software that satisfies this objective, end to end, in the workspace.
+
+OBJECTIVE: ${objective}${fullContext ? `\n\nPROJECT CONTEXT:\n${fullContext.slice(0, 2000)}` : ''}${archHint}
+
+Requirements:
+- Create every necessary file with COMPLETE, production-quality code — no placeholders, no TODOs.
+- If you need dependencies, create/update package.json (or requirements.txt) and run the install command via the run tool.
+- Write at least one runnable check or test, RUN it with the run tool, and fix any failures.
+- Do NOT call finish until you have actually executed the code/tests and seen them succeed.`;
+
+    this.log(`Building via agentic loop in ${outputDir} (Warden ${guard ? 'ON' : 'off'})...`);
+    const res = await runAgentLoop(goal, {
+      workspace: outputDir,
+      maxSteps: 40,
+      writeGuard: guard,
+      onEvent: (ev) => {
+        if (ev.type === 'action') this.log(`build: ${ev.tool} ${ev.args?.path || ev.args?.command || ''}`);
+        else if (ev.type === 'finish') this.log(`build ${ev.success ? 'succeeded' : 'ended'}: ${ev.summary}`);
+      },
+    });
+
+    if (!res.success) {
+      this.log(`Loop build did not converge: ${res.summary}`, 'warn');
+      return null; // caller falls back to classic pipeline
+    }
+
+    const produced = this._scanDirectory(outputDir);
+    this.remember(`Built (loop): ${objective}\nFiles: ${produced.join(', ')}`, { tags: ['build', 'code', 'loop'], importance: 8, scope: 'long_term' });
+    bus.emit('code:built', { objective, outputDir, via: 'agent-loop', files: produced });
+    return { objective, outputDir, via: 'agent-loop', summary: res.summary, files: produced.map(p => ({ path: p })) };
+  }
+
+  // A Warden-backed write guard for the agentic loop — deterministic gate on every write/edit.
+  _makeWardenGuard() {
+    const warden = registry.get('WardenAgent');
+    if (!warden) return null;
+    return async ({ fullPath, content }) => {
+      try {
+        const res = await warden.run({ filePath: fullPath, fileContent: content, isSelfModifying: false, validateOnly: true });
+        if (res.success) return { ok: true };
+        const detail = (res.issues || []).map(i => `- ${i.type}: ${i.description}${i.fix ? ` (fix: ${i.fix})` : ''}`).join('\n');
+        return { ok: false, observation: `Warden REJECTED this write:\n${detail}\nFix these issues and write again.` };
+      } catch (err) {
+        // Fail-open on Warden infra errors — don't deadlock a build over a gate malfunction.
+        this.log(`Warden guard error (allowing write): ${err.message}`, 'warn');
+        return { ok: true };
+      }
+    };
+  }
+
+  /**
+   * Detect if the objective is asking to modify existing code vs create new
+   */
+  _isModifyObjective(objective, outputDir) {
+    if (!outputDir) return false;
+    const modifyKeywords = /\b(fix|bug|modify|change|update|refactor|add .+ to|edit|patch|improve|upgrade|migrate|convert|replace)\b/i;
+    const hasExistingFiles = existsSync(outputDir) && readdirSync(outputDir).filter(f => !f.startsWith('.')).length > 0;
+    return modifyKeywords.test(objective) && hasExistingFiles;
+  }
+
+  /**
+   * MODIFY EXISTING CODE — reads target files, generates diffs, applies surgically
+   */
+  async _modifyExistingCode(objective, outputDir, projectContext) {
+    const existingFiles = this._scanDirectory(outputDir);
+    this.log(`Scanned ${existingFiles.length} existing files`);
+    const fileContents = [];
+    for (const fp of existingFiles.slice(0, 10)) {
+      try {
+        const fullPath = path.join(outputDir, fp);
+        const stat = statSync(fullPath);
+        if (stat.size < 50000) fileContents.push({ path: fp, content: readFileSync(fullPath, 'utf8') });
+        else fileContents.push({ path: fp, content: readFileSync(fullPath, 'utf8').slice(0, 2000) });
+      } catch { /* skip */ }
+    }
+    const modPlan = await structured(
+      `Modify existing codebase. Objective: "${objective}"\n\nContext:\n${projectContext}\n\nExisting files:\n${fileContents.map(f => `--- ${f.path} ---\n${f.content.slice(0, 3000)}`).join('\n')}\n\nFor each file, specify path, action (modify/create), full new content, and description.`,
+      { changes: [{ path: '', action: 'modify', content: '', description: '' }], summary: '', testCommand: '' },
+      { temperature: 0.1, timeout: 60000 }
+    );
+    this.log(`Modification plan: ${modPlan.summary}`);
+    let currentChanges = modPlan.changes.map(c => ({ path: c.path, content: this._stripLLMNarrative(c.content) }));
+    let testResult = { passed: false, errors: null };
+    const architecture = { testCommand: modPlan.testCommand };
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      this.log(`Modification attempt ${attempt}/3`);
+      await this._writeToDisk(currentChanges, outputDir, '');
+      await this._installDeps(outputDir, architecture);
+      testResult = await this._runTests(outputDir, architecture);
+      this.log(`Tests: ${testResult.passed ? '✅ PASSED' : '❌ FAILED'}`);
+      if (testResult.passed) break;
+      if (attempt < 3 && testResult.errors) {
+        const fixes = await this._autoFix(currentChanges, testResult.errors, objective + '\n' + projectContext);
+        if (fixes.length > 0) { for (const fix of fixes) { const idx = currentChanges.findIndex(f => f.path === fix.path); if (idx >= 0) currentChanges[idx] = fix; else currentChanges.push(fix); } }
+        else break;
+      }
+    }
+    if (!testResult.passed) throw new Error(`CodeAgent modification failed: ${testResult.errors?.slice(0, 300)}`);
+    this.remember(`Modified: ${objective}\nFiles: ${currentChanges.map(f => f.path).join(', ')}`, { tags: ['modify', 'code'], importance: 8, scope: 'long_term' });
+    return { objective, changes: currentChanges, outputDir, type: 'modify' };
+  }
+
+  /**
+   * Scan directory recursively for source files
+   */
+  _scanDirectory(dir, prefix = '') {
+    const results = [];
+    try {
+      for (const entry of readdirSync(dir)) {
+        if (entry.startsWith('.') || entry === 'node_modules' || entry === '__pycache__' || entry === '.git') continue;
+        const fullPath = path.join(dir, entry);
+        const relPath = prefix ? `${prefix}/${entry}` : entry;
+        const stat = statSync(fullPath);
+        if (stat.isDirectory()) results.push(...this._scanDirectory(fullPath, relPath));
+        else if (/\.(js|ts|jsx|tsx|py|json|html|css|md|yaml|yml|toml|sh|sql)$/i.test(entry)) results.push(relPath);
+      }
+    } catch { /* skip */ }
+    return results;
+  }
+
   /**
    * Detect project context: ESM vs CJS, existing dependencies, Node version
    */
   _detectProjectContext(outputDir) {
     const lines = [];
     try {
+      // ── Node.js / JavaScript detection ──
       const pkgPath = path.join(outputDir, 'package.json');
       if (existsSync(pkgPath)) {
         const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-        
-        // Module type
         if (pkg.type === 'module') {
-          lines.push('CRITICAL: This project uses ES Modules ("type": "module" in package.json). You MUST use `import/export` syntax. Do NOT use `require()` or `module.exports` — they will cause ReferenceError at runtime.');
+          lines.push('CRITICAL: This project uses ES Modules ("type": "module" in package.json). You MUST use `import/export` syntax. Do NOT use `require()` or `module.exports`.');
         } else {
           lines.push('This project uses CommonJS modules. Use `require()` and `module.exports`.');
         }
-        
-        // Existing dependencies
+        const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+        if (allDeps['react']) {
+          lines.push(`REACT PROJECT: React ${allDeps['react']} detected. Use JSX syntax and functional components.`);
+          if (allDeps['next']) lines.push('Next.js project — use app router conventions.');
+          if (allDeps['vite']) lines.push('Vite build tool detected.');
+        }
         const deps = Object.keys(pkg.dependencies || {});
-        if (deps.length > 0) {
-          lines.push(`Already installed dependencies: ${deps.join(', ')}. Do NOT reinstall these.`);
-        }
-        
-        // Node engine
-        if (pkg.engines?.node) {
-          lines.push(`Target Node version: ${pkg.engines.node}`);
-        }
+        if (deps.length > 0) lines.push(`Already installed: ${deps.join(', ')}. Do NOT reinstall.`);
+        if (pkg.engines?.node) lines.push(`Target Node: ${pkg.engines.node}`);
+        lines.push('LANGUAGE: JavaScript/Node.js');
       }
-    } catch { /* no package.json, no context */ }
+      // ── Python detection ──
+      const reqPath = path.join(outputDir, 'requirements.txt');
+      const setupPy = path.join(outputDir, 'setup.py');
+      const pyproject = path.join(outputDir, 'pyproject.toml');
+      if (existsSync(reqPath)) {
+        const reqs = readFileSync(reqPath, 'utf8').trim().split('\n').filter(l => l && !l.startsWith('#'));
+        lines.push(`PYTHON PROJECT: requirements.txt with: ${reqs.join(', ')}`);
+        lines.push('Use Python 3 syntax. Do NOT use Node.js patterns.');
+        lines.push('LANGUAGE: Python');
+      } else if (existsSync(setupPy) || existsSync(pyproject)) {
+        lines.push('PYTHON PROJECT detected (setup.py or pyproject.toml).');
+        lines.push('LANGUAGE: Python');
+      }
+      if (lines.length === 0) lines.push('No existing project detected. Create from scratch.');
+    } catch { /* no project files */ }
     return lines.join('\n');
   }
 
@@ -343,45 +528,94 @@ export class CodeAgent extends BaseAgent {
   }
 
   async _surgicalFix(filePath, originalContent, issues, outputDir) {
-    this.log(`Applying precision ApexForge auto-heal for ${filePath}...`);
-    
+    this.log(`Applying precision auto-heal for ${filePath}...`);
     const fullPath = path.join(outputDir, filePath);
-    // Ensure the disk file has the latest content so Hermes can read it
-    writeFileSync(fullPath, originalContent, 'utf8');
+    const isJs = /\.(js|mjs|cjs)$/.test(fullPath);
+    let content = originalContent;
 
     for (const issue of issues) {
-      const hermesPrompt = `CRITICAL PRESERVATION RULE: You are applying a precision security fix to an existing file. DO NOT rewrite, delete, or re-architect the entire file. Fix ONLY the following Warden sandbox violation: ${issue.description}. Suggested fix: ${issue.fix}.`;
-      
-      let success = false;
+      let accepted = null;
       let retries = 0;
-      while (!success && retries < 3) {
+      while (accepted === null && retries < 3) {
         try {
-           let code = await complete(hermesPrompt);
-           code = code.replace(/^```[a-zA-Z]*\n/gm, '').replace(/```\n?$/gm, '');
-           writeFileSync(fullPath, code, 'utf8');
-           success = true;
+          // The model MUST see the actual file content (the old version never passed it, then
+          // overwrote the whole file with an unverified reply — that corrupted files). Ask for
+          // the full corrected file, then VALIDATE before writing.
+          const prompt = `You are fixing ONE sandbox violation in an existing file. Change only what is needed; preserve all other code, structure, and behavior.
+
+File: ${filePath}
+Violation: ${issue.description}
+Suggested fix: ${issue.fix || '(use a minimal, correct change)'}
+
+--- CURRENT FILE (fix this exact content) ---
+${content}
+--- END FILE ---
+
+Return the COMPLETE corrected file content and NOTHING else — no markdown fences, no commentary.`;
+          let out = await complete(prompt, { coding: true, temperature: 0.1, maxTokens: 8000 });
+          out = out.replace(/^```[a-zA-Z]*\n/, '').replace(/\n```$/, '').trim();
+
+          // Guard: never let a truncated/empty/nonsense reply clobber a real file.
+          if (!out || out.length < Math.max(20, Math.floor(content.length * 0.4))) {
+            throw new Error('fix output suspiciously short — refusing to overwrite');
+          }
+          if (isJs) {
+            const chk = await this._syntaxCheck(out);
+            if (!chk.success) throw new Error(`fix has syntax error: ${chk.error}`);
+          }
+          accepted = out;
         } catch (err) {
-           retries++;
-           const waitTime = Math.min(5000 * Math.pow(2, retries), 60000);
-           this.log(`ApexForge auto-heal failed: ${err.message}. Retrying in ${waitTime/1000}s...`, 'warn');
-           if (retries < 3) await new Promise(r => setTimeout(r, waitTime));
+          retries++;
+          this.log(`auto-heal attempt ${retries}/3 for ${filePath} failed: ${err.message}`, 'warn');
+          if (retries < 3) await new Promise(r => setTimeout(r, Math.min(3000 * retries, 15000)));
         }
       }
+      // Adopt only a validated fix; otherwise keep the previous (uncorrupted) content.
+      if (accepted !== null) content = accepted;
+      else this.log(`auto-heal could not safely fix "${issue.description}" — keeping original`, 'warn');
     }
-    
-    // Read the perfectly fixed file back from disk
-    return readFileSync(fullPath, 'utf8');
+
+    writeFileSync(fullPath, content, 'utf8'); // content is original or a validated fix — never garbage
+    return content;
+  }
+
+  // Syntax-check a JS string without importing/executing it (no side effects).
+  async _syntaxCheck(code) {
+    const tmp = path.join('/tmp', `apex-chk-${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`);
+    try {
+      writeFileSync(tmp, code, 'utf8');
+      await execAsync(`node --check "${tmp}"`, { timeout: 5000 });
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err.stderr || err.message || '').slice(0, 400) };
+    } finally {
+      try { unlinkSync(tmp); } catch {}
+    }
   }
 
   async _installDeps(outputDir, architecture) {
+    // Node.js
     const pkgPath = path.join(outputDir, 'package.json');
-    if (!existsSync(pkgPath)) return;
-
-    try {
-      this.log('Installing dependencies...');
-      await execAsync('npm install', { cwd: outputDir, timeout: 120000 });
-    } catch (err) {
-      this.log(`Dep install warning: ${err.message}`, 'warn');
+    if (existsSync(pkgPath)) {
+      try {
+        this.log('Installing Node.js dependencies...');
+        await execAsync('npm install', { cwd: outputDir, timeout: 120000 });
+      } catch (err) { this.log(`npm install warning: ${err.message}`, 'warn'); }
+    }
+    // Python
+    const reqPath = path.join(outputDir, 'requirements.txt');
+    if (existsSync(reqPath)) {
+      try {
+        this.log('Installing Python dependencies...');
+        await execAsync('pip3 install -r requirements.txt --quiet', { cwd: outputDir, timeout: 120000 });
+      } catch (err) { this.log(`pip install warning: ${err.message}`, 'warn'); }
+    }
+    const pyproject = path.join(outputDir, 'pyproject.toml');
+    if (existsSync(pyproject) && !existsSync(reqPath)) {
+      try {
+        this.log('Installing Python project...');
+        await execAsync('pip3 install -e . --quiet', { cwd: outputDir, timeout: 120000 });
+      } catch (err) { this.log(`pip install warning: ${err.message}`, 'warn'); }
     }
   }
 
