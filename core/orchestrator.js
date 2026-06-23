@@ -181,6 +181,22 @@ class Orchestrator {
       }
     }
 
+    // Build/engineering requests go straight through the agentic loop — APEX's strongest path
+    // (native tool-calling, plan → delegate → independent verification). Falls back to the legacy
+    // graph engine on any error. Toggle off with APEX_LOOP_ORCHESTRATION=false.
+    if (intent.intent === 'build' && process.env.APEX_LOOP_ORCHESTRATION !== 'false') {
+      try {
+        const loopRes = await this._runViaLoop(userInput, opts);
+        Memory.storeTask({ id: loopRes.taskId, task: userInput, result: loopRes.synthesis, success: loopRes.success, durationMs: Date.now() - startTime });
+        identity.recordTask(loopRes.success);
+        bus.emit('task:completed', { id: loopRes.taskId, duration: Date.now() - startTime });
+        console.log(chalk.green(`\n✅ Completed via loop in ${((Date.now() - startTime) / 1000).toFixed(1)}s\n`));
+        return loopRes;
+      } catch (err) {
+        console.log(chalk.yellow(`[Orchestrator] Loop path errored (${err.message}); falling back to graph engine.`));
+      }
+    }
+
     console.log(chalk.yellow(`\n🧠 Processing: "${userInput}"`));
     bus.emit('task:started', { id: taskId, input: userInput });
 
@@ -271,6 +287,39 @@ class Orchestrator {
 
       throw err;
     }
+  }
+
+  // ─── AGENTIC LOOP ROUTE ────────────────────────────────────────────────────────
+  // Route a build/engineering request straight through the agentic loop — APEX's strongest path
+  // (native tool-calling, plan → delegate → INDEPENDENT verification, Warden-gated writes). Every
+  // front door (CLI, Telegram, dashboard, scheduler, MCP) funnels through execute(), so this is the
+  // single switch that puts the loop brain behind all of them.
+  async _runViaLoop(userInput, opts = {}) {
+    const { runAgentLoop } = await import('./agent-loop.js');
+    const code = registry.get('CodeAgent');
+    const guard = (code && typeof code._makeWardenGuard === 'function') ? code._makeWardenGuard() : null;
+    const workspace = opts.outputDir
+      ? path.resolve(process.cwd(), opts.outputDir)
+      : (process.env.APEX_OUTPUT_DIR ? path.resolve(process.cwd(), process.env.APEX_OUTPUT_DIR) : process.cwd());
+
+    console.log(chalk.cyan(`\n🔁 Routing build task through the agentic loop → ${workspace}`));
+    bus.emit('task:loop_start', { input: userInput, workspace });
+
+    const res = await runAgentLoop(userInput, {
+      workspace,
+      maxSteps: 45,
+      writeGuard: guard,
+      verify: true,
+      onEvent: (ev) => {
+        if (ev.type === 'action') console.log(chalk.gray(`  loop[${ev.depth || 0}] ${ev.tool} ${ev.args?.path || ev.args?.command || ''}`));
+        else if (ev.type === 'plan') console.log(chalk.blue(`  📋 ${ev.todos.map(t => t.task).join(' | ')}`));
+        else if (ev.type === 'delegate_start') console.log(chalk.magenta(`  ⇣ sub-agent: ${String(ev.task).slice(0, 70)}`));
+        else if (ev.type === 'verify_end') console.log((ev.verified ? chalk.green : chalk.red)(`  🔍 verify: ${ev.verified ? 'PASSED' : 'FAILED'} — ${(ev.reason || '').slice(0, 80)}`));
+        else if (ev.type === 'finish') console.log(chalk.green(`  ✅ ${ev.summary}`));
+      },
+    });
+
+    return { taskId: uuidv4(), input: userInput, synthesis: res.summary, success: res.success, verified: res.verified || false, workspace, viaLoop: true };
   }
 
   // ─── APEX NATIVE GRAPH ENGINE ──────────────────────────────────────────────────
