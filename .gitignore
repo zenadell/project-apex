@@ -1,2 +1,10 @@
 .aider*
 .env
+
+# Runtime state (SQLite DBs regenerate on run) — keep them out of commits
+*.db
+*.bundle
+sandbox/
+apex-output/
+nohup.out
+*.log
