@@ -244,13 +244,6 @@ Do NOT finish until you have actually seen IMPORT_OK.`,
     );
   }
 
-  async _generateGitWrapper(name, skillDir, description, context) {
-    return complete(
-      `Write a Node.js ES module wrapper for this cloned git tool.\nTool: ${name}\nDirectory: ${skillDir}\nDescription: ${description}\n\n=== REPOSITORY GRAPHIFY CONTEXT ===\n${context}\n=====================\n\nThe wrapper should:\n1. Use child_process or imports to expose the tool's core functionality\n2. Export a class with methods APEX agents can use\n3. Parse output intelligently\n\nReturn ONLY the valid JS code.`,
-      { temperature: 0.2, maxTokens: 4000, model: 'pro' } // Use DeepSeek Pro for complex code writing
-    );
-  }
-
   // Find a skill on clawhub / npm / github
   async findSkill(query) {
     const [npmResults, ghResults] = await Promise.allSettled([
