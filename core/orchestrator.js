@@ -321,6 +321,8 @@ class Orchestrator {
         else if (ev.type === 'plan') console.log(chalk.blue(`  📋 ${ev.todos.map(t => t.task).join(' | ')}`));
         else if (ev.type === 'delegate_start') console.log(chalk.magenta(`  ⇣ sub-agent: ${String(ev.task).slice(0, 70)}`));
         else if (ev.type === 'verify_end') console.log((ev.verified ? chalk.green : chalk.red)(`  🔍 verify: ${ev.verified ? 'PASSED' : 'FAILED'} — ${(ev.reason || '').slice(0, 80)}`));
+        else if (ev.type === 'recall') console.log(chalk.blue(`  🧠 recalled ${ev.count} lesson(s) from similar past tasks`));
+        else if (ev.type === 'learned') console.log(chalk.blue(`  🧠 distilled a reusable lesson from this run`));
         else if (ev.type === 'finish') console.log(chalk.green(`  ✅ ${ev.summary}`));
       },
     });
