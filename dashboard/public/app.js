@@ -18,6 +18,7 @@ case'delegate_start':loopLine(`<span class="ll-ico del">⇣</span>${e.parallel?'
 case'delegate_end':loopLine(`<span class="ll-ico ${e.success?'ok':'err'}">⇡</span>sub-agent ${e.success?'done':'failed'} <span class="ll-det">${esc(String(e.summary||'').slice(0,72))}</span>`,dep,'delegate');break;
 case'call_agent':loopLine(`<span class="ll-ico call">📞</span><span class="ll-tool">${esc(e.agent||'')}</span><span class="ll-det">${esc(String(e.task||'').slice(0,72))}</span>`,dep,'callagent');break;
 case'stuck':loopLine(`<span class="ll-ico warn">⤴</span>stuck (${e.errorStreak||''}) — <b>self-healing</b>: diagnose + adapt`,dep,'escalate');break;
+case'degrade':loopLine(`<span class="ll-ico warn">⬇</span>giving up ideal path — <b>shipping best partial</b>`,dep,'escalate');break;
 case'compact':loopLine(`<span class="ll-ico">⧉</span>context compacted`,dep,'compact');break;
 case'snapshot':loopLine(`<span class="ll-ico">📷</span>workspace snapshot (rollback armed)`,dep,'compact');break;
 case'rolledback':loopLine(`<span class="ll-ico err">⏪</span>failed — workspace rolled back`,dep,'verify');break;

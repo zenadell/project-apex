@@ -65,6 +65,8 @@ const res = await runAgentLoop(goal, {
       console.log(pad + (ev.success ? C.ok('    ⇡ sub-agent done: ') : C.err('    ⇡ sub-agent failed: ')) + C.dim((ev.summary || '').slice(0, 90)));
     } else if (ev.type === 'stuck') {
       console.log(pad + C.info(`    ⤴ stuck (${ev.errorStreak} fails) — self-healing: diagnose + adapt (pro reasoner)`));
+    } else if (ev.type === 'degrade') {
+      console.log(pad + C.info(`    ⬇ giving up the ideal path — shipping best partial result from what works`));
     } else if (ev.type === 'compact') {
       console.log(pad + C.info(`    ⧉ context compacted (${ev.fromMessages} msgs → summary + recent)`));
     } else if (ev.type === 'snapshot') {

@@ -100,6 +100,27 @@ RIGHT NOW:
 3. Diagnose the ROOT CAUSE, then FIX it directly: install the missing dependency (pip/npm), research the error or approach (call_agent a research agent, or read docs), or switch to a completely different method.
 4. If a sub-goal is genuinely blocked, change strategy or finish with the partial results you DO have — do not loop.`;
 
+// Probe the runtime so the agent KNOWS what's available and stops attempting impossible installs
+// (e.g. apt-get on macOS, multi-GB torch). Injected into the top-level context.
+async function probeEnvironment() {
+  const tools = ['node', 'python3', 'pip3', 'ffmpeg', 'ffprobe', 'yt-dlp', 'git', 'brew', 'apt-get', 'docker', 'tesseract', 'convert'];
+  const have = [];
+  for (const t of tools) { try { await execAsync(`command -v ${t}`, { timeout: 3000 }); have.push(t); } catch {} }
+  const missing = tools.filter(t => !have.includes(t));
+  const mac = os.platform() === 'darwin';
+  const note = mac ? ' This is macOS — apt-get/yum do NOT exist (use brew or pip/npm). Avoid multi-GB installs (e.g. torch) unless essential; prefer a lighter tool or an available specialist agent (call_agent).' : '';
+  return `\nRUNTIME: ${mac ? 'macOS (darwin)' : os.platform()}. Available CLIs: ${have.join(', ') || '(none)'}. NOT installed: ${missing.join(', ') || '(none)'}.${note}`;
+}
+
+// When the agent has flailed too long, STOP and deliver the best partial answer from what it has —
+// genuine graceful degradation so APEX always ships something useful instead of looping to a dead end.
+async function synthesizePartial(goal, transcript) {
+  const log = transcript.map(t => `${t.tool}${t.args?.command ? ` $${t.args.command}` : t.args?.path ? ` ${t.args.path}` : ''} → ${t.result?.ok ? 'ok' : 'FAIL'}: ${String(t.result?.observation || '').replace(/\s+/g, ' ').slice(0, 180)}`).join('\n').slice(0, 6000);
+  try {
+    return await chat([{ role: 'user', content: `You attempted this task but could not fully complete it after repeated tries. Using ONLY what you actually achieved/learned below, give the user the BEST PARTIAL ANSWER you can for their request, and state in one line what remained blocked and why. Be useful and concrete, not apologetic.\n\nREQUEST: ${goal}\n\nWHAT HAPPENED:\n${log}` }], { complex: true, temperature: 0.3, maxTokens: 700 });
+  } catch { return `Could not fully complete "${goal}". Partial progress is in the workspace; the blocking step could not be resolved.`; }
+}
+
 // ─── Robust extraction of a single JSON object from model output ───────────────
 export function extractToolCall(raw) {
   if (!raw || typeof raw !== 'string') return null;
@@ -606,9 +627,11 @@ export async function runAgentLoop(goal, opts = {}) {
   });
   const effectiveTools = restricted ? allowedTools : defaultNames;
 
-  // Self-improvement: recall lessons from similar past tasks and inject them as hints.
+  // Self-improvement + environment awareness: recall lessons from similar past tasks, and tell the
+  // agent what's actually installed so it stops attempting impossible installs.
   const learnedNote = (learn && depth === 0) ? await recallLessons(goal, onEvent) : '';
-  const sys = systemPrompt(context + rosterNote + learnedNote);
+  const envNote = (depth === 0) ? await probeEnvironment() : '';
+  const sys = systemPrompt(context + rosterNote + learnedNote + envNote);
   const toolNames = new Set(effectiveTools);
   const toolSchemas = buildToolSchemas(effectiveTools);
   let messages = [{ role: 'user', content: `TASK:\n${goal}\n\nThe workspace is "${wsRoot}". Begin — use the provided tools.` }];
@@ -616,6 +639,7 @@ export async function runAgentLoop(goal, opts = {}) {
   const todos = [];      // the agent's live checklist (plan/todo tools maintain it)
   let consecutiveParseFails = 0;
   let errorStreak = 0;   // consecutive failed steps — when high, escalate flash → pro to think harder
+  let stuckSteps = 0;    // steps taken while stuck — after a cap, force graceful degradation (ship partial)
 
   emit(onEvent, { type: 'start', goal, workspace: wsRoot });
 
@@ -627,7 +651,16 @@ export async function runAgentLoop(goal, opts = {}) {
     // root cause and changes strategy instead of repeating a dead action or waiting for rescue.
     const stuck = errorStreak >= 2;
     if (stuck) {
+      stuckSteps++;
       emit(onEvent, { type: 'stuck', step, errorStreak });
+      // SURVIVAL: after repeated failed self-heal attempts, stop flailing and ship the best partial
+      // answer from what already works — never loop to a dead end "couldn't finish".
+      if (stuckSteps >= 5) {
+        emit(onEvent, { type: 'degrade', step });
+        const partial = await synthesizePartial(goal, transcript);
+        bus.emit('agentloop:finish', { success: false, summary: partial });
+        return finalize({ success: false, degraded: true, summary: partial, steps: step, transcript });
+      }
       messages.push({ role: 'user', content: STUCK_INTERVENTION });
     }
 
