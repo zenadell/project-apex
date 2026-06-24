@@ -29,6 +29,7 @@ import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import bus from './event-bus.js';
+import { mcpManager } from './mcp-client.js';
 
 const execAsync = promisify(exec);
 const SNAPSHOT_SKIP = new Set(['node_modules', '.git', '.apex-backup', 'sandbox']);
@@ -53,6 +54,7 @@ const ALL_TOOL_DEFS = {
   todo:       { description: 'Update one checklist item status.', params: { index: { type: 'integer' }, status: { type: 'string', enum: ['pending', 'in_progress', 'done'] } }, required: ['index', 'status'] },
   delegate:   { description: 'Hand off sub-task(s) to fresh sub-agent(s) — each gets its own clean context in the same workspace. Use "task" for one, or "tasks" (array) to run several IN PARALLEL (only when they touch DIFFERENT files). Returns summaries.', params: { task: { type: 'string' }, tasks: { type: 'array', items: { type: 'string' } }, context: { type: 'string' } }, required: [] },
   call_agent: { description: 'Invoke one of APEX\'s specialist agents for a capability the file/run tools cannot do — e.g. web research, browsing, email/calendar, voice, image/video, deployment, security scanning, hardware. See the roster in the task context. Returns the agent\'s result.', params: { agent: { type: 'string', description: 'agent name from the roster' }, task: { type: 'string', description: 'what you need it to do' } }, required: ['agent', 'task'] },
+  call_mcp:   { description: 'Use an external MCP server\'s tools (configured in .apex-data/mcp.json). Omit "tool" to LIST a server\'s tools; provide tool + args to CALL one. Returns the result.', params: { server: { type: 'string', description: 'configured MCP server name' }, tool: { type: 'string', description: 'tool to call (omit to list tools)' }, args: { type: 'object', description: 'arguments for the tool' } }, required: ['server'] },
   finish:     { description: 'Finish the task — only after you have actually run the code/tests and confirmed success.', params: { summary: { type: 'string' }, success: { type: 'boolean' } }, required: ['summary'] },
 };
 
@@ -237,7 +239,7 @@ async function execTool(tool, args, workspace, guard) {
     case 'finish':
       return { ok: true, finish: true, summary: args.summary || '(no summary)', success: args.success !== false };
     default:
-      return { ok: false, observation: `Unknown tool "${tool}". Valid: list_dir, read_file, search, write_file, edit_file, run, plan, todo, delegate, finish.` };
+      return { ok: false, observation: `Unknown tool "${tool}". Valid: list_dir, read_file, search, write_file, edit_file, run, plan, todo, delegate, call_agent, call_mcp, finish.` };
   }
 }
 
@@ -426,6 +428,25 @@ async function runCallAgent(args, cfg) {
   }
 }
 
+// ─── External MCP servers as tools (call_mcp) ───────────────────────────────────
+async function runCallMcp(args, cfg) {
+  const { onEvent, depth } = cfg;
+  const server = args.server;
+  if (!server) return { ok: false, observation: 'call_mcp needs "server" (a configured MCP server name).' };
+  try {
+    if (!args.tool) {
+      const tools = await mcpManager.tools(server);
+      emit(onEvent, { type: 'call_mcp', depth, server, tool: '(list)' });
+      return { ok: true, observation: `MCP "${server}" tools:\n${tools.map(t => `- ${t.name}: ${(t.description || '').slice(0, 80)}`).join('\n') || '(none)'}` };
+    }
+    emit(onEvent, { type: 'call_mcp', depth, server, tool: args.tool });
+    const result = await mcpManager.call(server, args.tool, args.args || {});
+    return { ok: true, observation: `${server}.${args.tool} →\n${truncate(String(result))}` };
+  } catch (err) {
+    return { ok: false, observation: `MCP "${server}" error: ${err.message}` };
+  }
+}
+
 // ─── Independent verification ───────────────────────────────────────────────────
 // Do NOT let the agent grade its own homework. When it claims `finish`, a SEPARATE read-only
 // agent (its own fresh context, can only read/search/RUN — never modify) must independently
@@ -524,14 +545,20 @@ export async function runAgentLoop(goal, opts = {}) {
     return result;
   };
 
-  // Specialist agents the loop may invoke via call_agent (only when not running a restricted
-  // toolset, e.g. the verifier). When none are registered (standalone runs), call_agent is dropped.
-  const agentRoster = (allowedTools && allowedTools.length) ? [] : await listAvailableAgents();
-  const rosterNote = agentRoster.length
-    ? `\nSpecialist agents available via call_agent (use these for things file/run cannot do):\n${agentRoster.map(a => `- ${a.name}: ${a.description}`).join('\n')}`
-    : '';
-  const defaultNames = Object.keys(ALL_TOOL_DEFS).filter(n => n !== 'call_agent' || agentRoster.length);
-  const effectiveTools = (allowedTools && allowedTools.length) ? allowedTools : defaultNames;
+  // Specialist agents (call_agent) and external MCP servers (call_mcp) the loop may invoke — only
+  // when not running a restricted toolset (e.g. the verifier). Tools are dropped when none exist.
+  const restricted = !!(allowedTools && allowedTools.length);
+  const agentRoster = restricted ? [] : await listAvailableAgents();
+  let mcpServers = []; try { mcpServers = restricted ? [] : mcpManager.listConfigured(); } catch {}
+  const rosterNote =
+    (agentRoster.length ? `\nSpecialist agents available via call_agent (for things file/run cannot do):\n${agentRoster.map(a => `- ${a.name}: ${a.description}`).join('\n')}` : '') +
+    (mcpServers.length ? `\nExternal MCP servers available via call_mcp (call_mcp {server} to list a server's tools, then {server,tool,args} to call):\n${mcpServers.map(s => `- ${s.name}`).join('\n')}` : '');
+  const defaultNames = Object.keys(ALL_TOOL_DEFS).filter(n => {
+    if (n === 'call_agent') return agentRoster.length > 0;
+    if (n === 'call_mcp') return mcpServers.length > 0;
+    return true;
+  });
+  const effectiveTools = restricted ? allowedTools : defaultNames;
 
   const sys = systemPrompt(context + rosterNote);
   const toolNames = new Set(effectiveTools);
@@ -623,6 +650,7 @@ export async function runAgentLoop(goal, opts = {}) {
         else if (c.name === 'plan' || c.name === 'todo') result = updatePlan(c.name, c.args || {}, todos, onEvent, depth);
         else if (c.name === 'delegate') result = await runDelegate(c.args || {}, { workspace, writeGuard, llmOpts, depth, maxDepth, maxSteps, onEvent });
         else if (c.name === 'call_agent') result = await runCallAgent(c.args || {}, { onEvent, depth });
+        else if (c.name === 'call_mcp') result = await runCallMcp(c.args || {}, { onEvent, depth });
         else result = await execTool(c.name, c.args, workspace, writeGuard);
       } catch (err) {
         result = { ok: false, observation: `Tool "${c.name}" error: ${err.message}` };

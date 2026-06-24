@@ -51,10 +51,27 @@ Run a single task directly:
 node agent-run.js "create calculator.js with add/multiply, write a test, run it, make it pass" --workspace /tmp/demo
 ```
 
+The loop can also reach **APEX's specialist agents** (`call_agent`) and **external MCP servers**
+(`call_mcp`) for capabilities the file/run tools don't cover.
+
+## Connectors
+
+APEX both **exposes** itself as an MCP server (`tools/mcp-server.js`, for Cursor/Claude Desktop/etc.)
+and **consumes** external MCP servers as a client (`core/mcp-client.js`, stdio or http):
+
+```bash
+# register an external MCP server, then APEX can use its tools via call_mcp
+apex mcp-add filesystem --command npx --args "-y,@modelcontextprotocol/server-filesystem,/tmp"
+apex mcp-list
+```
+
+It can also clone + integrate a git repo as a reusable skill (`agents/skills.js`).
+
 ## Tests
 
 ```bash
-node test/smoke.js        # structural + module smoke tests
+node test/smoke.js          # structural + module smoke tests
+node test/agent-loop.test.js  # agentic-core regression suite
 ```
 
 ## Notes

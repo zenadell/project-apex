@@ -1106,4 +1106,39 @@ program
     } catch (err) { spinner.fail(chalk.red(err.message)); }
   });
 
+// ── External MCP servers (APEX as a CLIENT — consume other MCP servers) ──────────
+program
+  .command('mcp-add <name>')
+  .description('Register an external MCP server APEX can use (stdio command or http url)')
+  .option('--command <cmd>', 'stdio command, e.g. npx')
+  .option('--args <args>', 'comma-separated args')
+  .option('--url <url>', 'http MCP endpoint instead of a stdio command')
+  .action(async (name, opts) => {
+    const { mcpManager } = await import('./core/mcp-client.js');
+    if (!opts.url && !opts.command) { console.log(chalk.red('Provide --command (+--args) or --url')); return; }
+    const cfg = opts.url ? { url: opts.url } : { command: opts.command, args: (opts.args || '').split(',').map(s => s.trim()).filter(Boolean) };
+    await mcpManager.addServer(name, cfg);
+    console.log(chalk.green(`✅ Registered MCP server "${name}". APEX can now reach it via call_mcp.`));
+    console.log(chalk.gray(`   Example: apex run "use the ${name} MCP server to ..."`));
+  });
+
+program
+  .command('mcp-list')
+  .description('List registered external MCP servers and their tools')
+  .action(async () => {
+    const { mcpManager } = await import('./core/mcp-client.js');
+    const servers = mcpManager.listConfigured();
+    if (!servers.length) {
+      console.log(chalk.gray('No external MCP servers configured.'));
+      console.log(chalk.gray('Add one: apex mcp-add filesystem --command npx --args "-y,@modelcontextprotocol/server-filesystem,/tmp"'));
+      process.exit(0);
+    }
+    for (const s of servers) {
+      console.log(chalk.cyan(`\n${s.name}`) + chalk.gray(s.url ? `  (http ${s.url})` : `  (${s.command} ${(s.args || []).join(' ')})`));
+      try { (await mcpManager.tools(s.name)).forEach(t => console.log(`   - ${t.name}: ${chalk.gray((t.description || '').slice(0, 70))}`)); }
+      catch (e) { console.log(chalk.red(`   (could not connect: ${e.message})`)); }
+    }
+    process.exit(0);
+  });
+
 program.parse();
