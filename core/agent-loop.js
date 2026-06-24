@@ -260,9 +260,13 @@ async function execTool(tool, args, workspace, guard) {
     }
     case 'run': {
       if (!args.command) return { ok: false, observation: `run needs a "command".` };
+      // Installs/downloads (pip, npm, brew, model fetches) legitimately take minutes — a 120s cap
+      // silently kills them and makes a capability look "impossible". Give those a real window.
+      const heavy = /\b(pip3?|npm|yarn|pnpm|brew|apt-get|apt|cargo|go)\s+(install|add|get)\b|download|whisper|--dump|yt-dlp|ffmpeg/i.test(args.command);
+      const timeout = heavy ? 600000 : 120000;
       try {
         const { stdout, stderr } = await execAsync(args.command, {
-          cwd: path.resolve(workspace), timeout: 120000, maxBuffer: 4 * 1024 * 1024,
+          cwd: path.resolve(workspace), timeout, maxBuffer: 8 * 1024 * 1024,
         });
         return { ok: true, observation: `exit 0\n--- stdout ---\n${truncate(stdout)}\n--- stderr ---\n${truncate(stderr)}` };
       } catch (err) {
