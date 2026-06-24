@@ -167,16 +167,17 @@ class Orchestrator {
       console.log(chalk.gray(`\n[Orchestrator] Intent classified as chat, but passing to Graph Engine for autonomous implicit reasoning.`));
     }
 
-    // Substantive "do something" requests go straight through the agentic loop FIRST — APEX's
-    // strongest path (native tool-calling, plan → delegate → independent verification, plus
-    // call_agent to reach specialist agents). Everything EXCEPT conversational/pure-info intents
-    // (chat, question) and inherently-specialist ones (research, security, deploy, hardware) routes
-    // here — including the 'general' fallback. Falls back to the legacy graph engine on any error.
+    // The agentic loop is APEX's UNIVERSAL executor — everything except pure conversation/Q&A
+    // routes through it. It plans, uses its own tools, reaches specialist agents via call_agent and
+    // external MCP servers via call_mcp, learns from the run, and (for build/engineering intents)
+    // independently verifies. Specialist intents (research/security/deploy/hardware) route here too
+    // but skip code-verification. Falls back to the legacy graph engine on error.
     // Toggle off with APEX_LOOP_ORCHESTRATION=false.
-    const NON_LOOP = new Set(['chat', 'question', 'research', 'security', 'deploy', 'hardware']);
+    const NON_LOOP = new Set(['chat', 'question']);
+    const VERIFY_INTENTS = new Set(['build', 'command', 'action', 'unknown', 'general']);
     if (!NON_LOOP.has(intent.intent) && process.env.APEX_LOOP_ORCHESTRATION !== 'false') {
       try {
-        const loopRes = await this._runViaLoop(userInput, opts);
+        const loopRes = await this._runViaLoop(userInput, { ...opts, verify: VERIFY_INTENTS.has(intent.intent) });
         Memory.storeTask({ id: loopRes.taskId, task: userInput, result: loopRes.synthesis, success: loopRes.success, durationMs: Date.now() - startTime });
         identity.recordTask(loopRes.success);
         bus.emit('task:completed', { id: loopRes.taskId, duration: Date.now() - startTime });
@@ -313,7 +314,7 @@ class Orchestrator {
       workspace,
       maxSteps: 45,
       writeGuard: guard,
-      verify: true,
+      verify: opts.verify !== false,   // build/engineering intents verify; specialist intents skip code-verification
       learn: true,
       onEvent: (ev) => {
         if (ev.type === 'action') console.log(chalk.gray(`  loop[${ev.depth || 0}] ${ev.tool} ${ev.args?.path || ev.args?.command || ''}`));

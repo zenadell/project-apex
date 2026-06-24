@@ -80,7 +80,8 @@ const STRATEGY = `Work strategy:
 - Prefer edit_file (exact diff) over rewriting whole files.
 - For capabilities the file/run tools lack (web research, browsing, email, voice, deploy, security scan, hardware), use call_agent with a specialist from the roster — do NOT try to fake them with run.
 - VERIFY by running it (use run). Do NOT call finish until the code/tests actually pass — an independent verifier will re-check your claim.
-- Write COMPLETE file contents — never "// ..." placeholders.`;
+- Write COMPLETE file contents — never "// ..." placeholders.
+- Keep the workspace tidy: delete any throwaway scratch/probe files you created (e.g. tmp_*.mjs) before you finish — leave only the real deliverables.`;
 
 function systemPrompt(extra = '') {
   return `You are APEX's autonomous engineering core. You complete software tasks by taking real actions through the provided tools and reacting to real results. Call a tool every step. Be precise; verify by executing.
