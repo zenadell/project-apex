@@ -1067,15 +1067,6 @@ program
     console.log(JSON.stringify(result, null, 2));
   });
 
-// ── Headlines ─────────────────────────────────────────────────────────────────
-program
-  .command('headlines')
-  .description('Fetch top headlines from Hacker News (with fallbacks)')
-  .action(async () => {
-    const { runHeadlines } = require('./headlines.js');
-    await runHeadlines();
-  });
-
 // ── Wake on LAN ───────────────────────────────────────────────────────────────
 program
   .command('wake [machine]')

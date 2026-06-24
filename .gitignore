@@ -12,3 +12,5 @@ sandbox/
 apex-output/
 nohup.out
 *.log
+
+.DS_Store

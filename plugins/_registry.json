@@ -338,5 +338,10 @@
     "path": "/Users/mac/Downloads/apex 4/plugins/cross-platform-native-notification-service.js",
     "description": "A tool to send system notifications (toast, alert banners) on Windows, macOS, and Linux. Used by agents to alert the user or trigger actions without requiring the UI to be open.",
     "created": 1780964554817
+  },
+  "levenshtein": {
+    "path": "/Users/mac/Downloads/apex 4/plugins/levenshtein.js",
+    "description": "Compute the Levenshtein edit distance between two strings. export default function levenshtein(a, b) returning a number.",
+    "created": 1782287259791
   }
 }
