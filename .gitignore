@@ -1,6 +1,10 @@
 .aider*
 .env
 
+# Dependencies & large binaries — never commit these
+node_modules/
+*.pkg
+
 # Runtime state (SQLite DBs regenerate on run) — keep them out of commits
 *.db
 *.bundle
