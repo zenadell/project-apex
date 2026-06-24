@@ -181,10 +181,13 @@ class Orchestrator {
       }
     }
 
-    // Build/engineering requests go straight through the agentic loop — APEX's strongest path
-    // (native tool-calling, plan → delegate → independent verification). Falls back to the legacy
-    // graph engine on any error. Toggle off with APEX_LOOP_ORCHESTRATION=false.
-    if (intent.intent === 'build' && process.env.APEX_LOOP_ORCHESTRATION !== 'false') {
+    // Substantive "do something" requests go straight through the agentic loop — APEX's strongest
+    // path (native tool-calling, plan → delegate → independent verification, and call_agent to reach
+    // specialist agents for web/email/deploy/etc.). Conversational/pure-info intents (chat, question)
+    // and inherently-specialist ones (research, security, deploy, hardware) keep their existing
+    // routing. Falls back to the legacy graph engine on any error. Toggle off with APEX_LOOP_ORCHESTRATION=false.
+    const LOOP_INTENTS = new Set(['build', 'command', 'action', 'unknown']);
+    if (LOOP_INTENTS.has(intent.intent) && process.env.APEX_LOOP_ORCHESTRATION !== 'false') {
       try {
         const loopRes = await this._runViaLoop(userInput, opts);
         Memory.storeTask({ id: loopRes.taskId, task: userInput, result: loopRes.synthesis, success: loopRes.success, durationMs: Date.now() - startTime });

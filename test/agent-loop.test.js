@@ -22,9 +22,11 @@ console.log('\n⚡ APEX agent-loop regression suite\n');
 
 // ── Tool schemas ──
 console.log('── tool schemas ──');
-test('default exposes all 10 tools', () => {
+test('default exposes all 11 tools (incl. call_agent)', () => {
   const s = buildToolSchemas();
-  assert(s.length === 10, `expected 10, got ${s.length}`);
+  const names = s.map(t => t.function.name);
+  assert(s.length === 11, `expected 11, got ${s.length}`);
+  assert(names.includes('call_agent'), 'missing call_agent');
   assert(s.every(t => t.type === 'function' && t.function?.name && t.function?.parameters), 'bad schema shape');
 });
 test('allowedTools restricts the offered set (verifier is read-only)', () => {

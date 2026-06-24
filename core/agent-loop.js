@@ -52,6 +52,7 @@ const ALL_TOOL_DEFS = {
   plan:       { description: 'Declare or replace your checklist for a multi-part task.', params: { todos: { type: 'array', items: { type: 'string' } } }, required: ['todos'] },
   todo:       { description: 'Update one checklist item status.', params: { index: { type: 'integer' }, status: { type: 'string', enum: ['pending', 'in_progress', 'done'] } }, required: ['index', 'status'] },
   delegate:   { description: 'Hand off sub-task(s) to fresh sub-agent(s) — each gets its own clean context in the same workspace. Use "task" for one, or "tasks" (array) to run several IN PARALLEL (only when they touch DIFFERENT files). Returns summaries.', params: { task: { type: 'string' }, tasks: { type: 'array', items: { type: 'string' } }, context: { type: 'string' } }, required: [] },
+  call_agent: { description: 'Invoke one of APEX\'s specialist agents for a capability the file/run tools cannot do — e.g. web research, browsing, email/calendar, voice, image/video, deployment, security scanning, hardware. See the roster in the task context. Returns the agent\'s result.', params: { agent: { type: 'string', description: 'agent name from the roster' }, task: { type: 'string', description: 'what you need it to do' } }, required: ['agent', 'task'] },
   finish:     { description: 'Finish the task — only after you have actually run the code/tests and confirmed success.', params: { summary: { type: 'string' }, success: { type: 'boolean' } }, required: ['summary'] },
 };
 
@@ -75,6 +76,7 @@ const STRATEGY = `Work strategy:
 - Delegate large, self-contained sub-tasks (e.g. "build module X", "write the test suite") with delegate — the sub-agent has its own fresh context, which keeps yours clean. Integrate and verify its result. For simple 1-2 step tasks, just do them.
 - Explore before you edit: use list_dir / search / read_file to understand existing code first.
 - Prefer edit_file (exact diff) over rewriting whole files.
+- For capabilities the file/run tools lack (web research, browsing, email, voice, deploy, security scan, hardware), use call_agent with a specialist from the roster — do NOT try to fake them with run.
 - VERIFY by running it (use run). Do NOT call finish until the code/tests actually pass — an independent verifier will re-check your claim.
 - Write COMPLETE file contents — never "// ..." placeholders.`;
 
@@ -384,6 +386,46 @@ async function runDelegate(args, cfg) {
   return { ok: child.success, observation: `${head} (${child.steps} steps): ${child.summary}` };
 }
 
+// ─── Specialist agents as tools (call_agent) ────────────────────────────────────
+// The loop is a software-engineering brain (file/run/search). For everything else — web research,
+// browsing, email/calendar, voice, image/video, deploy, security scans, hardware — it invokes one
+// of APEX's specialist agents. This is what makes the loop a UNIVERSAL executor, not just a coder.
+async function listAvailableAgents() {
+  try {
+    const registry = (await import('./agent-registry.js')).default;
+    const all = (typeof registry.all === 'function') ? registry.all() : [];
+    const EXCLUDE = new Set(['CodeAgent', 'WardenAgent', 'SelfModAgent']); // the loop already embodies these
+    return all.filter(a => a && a.name && !EXCLUDE.has(a.name))
+      .map(a => ({ name: a.name, description: (a.description || '').slice(0, 100) }));
+  } catch { return []; }
+}
+
+async function runCallAgent(args, cfg) {
+  const { onEvent, depth } = cfg;
+  const name = args.agent, task = args.task;
+  if (!name || !task) return { ok: false, observation: 'call_agent needs "agent" and "task".' };
+  let registry;
+  try { registry = (await import('./agent-registry.js')).default; } catch { return { ok: false, observation: 'agent registry unavailable.' }; }
+  const agent = registry.get ? registry.get(name) : null;
+  if (!agent) {
+    const avail = (await listAvailableAgents()).map(a => a.name).join(', ') || '(none registered)';
+    return { ok: false, observation: `No agent named "${name}". Available: ${avail}.` };
+  }
+  emit(onEvent, { type: 'call_agent', depth, agent: name, task });
+  try {
+    // Agents read varied field names; pass a superset so most work without per-agent mapping.
+    const payload = { id: `loop-${Date.now()}`, objective: task, prompt: task, query: task, instruction: task, task };
+    const result = (typeof agent._handleTask === 'function') ? await agent._handleTask(payload) : await agent.run(payload);
+    let obs;
+    if (result == null) obs = `${name} completed (no return value).`;
+    else if (typeof result === 'string') obs = result;
+    else obs = result.synthesis || result.summary || result.message || JSON.stringify(result);
+    return { ok: true, observation: `${name} →\n${truncate(String(obs))}` };
+  } catch (err) {
+    return { ok: false, observation: `${name} failed: ${err.message}` };
+  }
+}
+
 // ─── Independent verification ───────────────────────────────────────────────────
 // Do NOT let the agent grade its own homework. When it claims `finish`, a SEPARATE read-only
 // agent (its own fresh context, can only read/search/RUN — never modify) must independently
@@ -482,9 +524,18 @@ export async function runAgentLoop(goal, opts = {}) {
     return result;
   };
 
-  const sys = systemPrompt(context);
-  const toolNames = new Set(allowedTools && allowedTools.length ? allowedTools : Object.keys(ALL_TOOL_DEFS));
-  const toolSchemas = buildToolSchemas(allowedTools);
+  // Specialist agents the loop may invoke via call_agent (only when not running a restricted
+  // toolset, e.g. the verifier). When none are registered (standalone runs), call_agent is dropped.
+  const agentRoster = (allowedTools && allowedTools.length) ? [] : await listAvailableAgents();
+  const rosterNote = agentRoster.length
+    ? `\nSpecialist agents available via call_agent (use these for things file/run cannot do):\n${agentRoster.map(a => `- ${a.name}: ${a.description}`).join('\n')}`
+    : '';
+  const defaultNames = Object.keys(ALL_TOOL_DEFS).filter(n => n !== 'call_agent' || agentRoster.length);
+  const effectiveTools = (allowedTools && allowedTools.length) ? allowedTools : defaultNames;
+
+  const sys = systemPrompt(context + rosterNote);
+  const toolNames = new Set(effectiveTools);
+  const toolSchemas = buildToolSchemas(effectiveTools);
   let messages = [{ role: 'user', content: `TASK:\n${goal}\n\nThe workspace is "${wsRoot}". Begin — use the provided tools.` }];
   const transcript = [];
   const todos = [];      // the agent's live checklist (plan/todo tools maintain it)
@@ -571,6 +622,7 @@ export async function runAgentLoop(goal, opts = {}) {
         if (!toolNames.has(c.name)) result = { ok: false, observation: `Tool "${c.name}" is not available here. Available: ${[...toolNames].join(', ')}.` };
         else if (c.name === 'plan' || c.name === 'todo') result = updatePlan(c.name, c.args || {}, todos, onEvent, depth);
         else if (c.name === 'delegate') result = await runDelegate(c.args || {}, { workspace, writeGuard, llmOpts, depth, maxDepth, maxSteps, onEvent });
+        else if (c.name === 'call_agent') result = await runCallAgent(c.args || {}, { onEvent, depth });
         else result = await execTool(c.name, c.args, workspace, writeGuard);
       } catch (err) {
         result = { ok: false, observation: `Tool "${c.name}" error: ${err.message}` };
