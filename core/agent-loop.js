@@ -81,13 +81,24 @@ const STRATEGY = `Work strategy:
 - For capabilities the file/run tools lack (web research, browsing, email, voice, deploy, security scan, hardware), use call_agent with a specialist from the roster — do NOT try to fake them with run.
 - VERIFY by running it (use run). Do NOT call finish until the code/tests actually pass — an independent verifier will re-check your claim.
 - Write COMPLETE file contents — never "// ..." placeholders.
-- Keep the workspace tidy: delete any throwaway scratch/probe files you created (e.g. tmp_*.mjs) before you finish — leave only the real deliverables.`;
+- Keep the workspace tidy: delete any throwaway scratch/probe files you created (e.g. tmp_*.mjs) before you finish — leave only the real deliverables.
+- NEVER hide errors: do NOT suppress stderr (no "2>/dev/null", no swallowing output). You can only fix what you can SEE.
+- Before using an unfamiliar tool/API, check it's available (which/--version) or research it. If something is missing, INSTALL it (pip/npm) — don't work around a missing dependency.
+- SELF-HEAL: when an action fails, do NOT repeat it. Read the real error, diagnose the ROOT CAUSE, then act on it (install the missing thing, research the error, or switch method). You are autonomous — never stall waiting for a human.`;
 
 function systemPrompt(extra = '') {
   return `You are APEX's autonomous engineering core. You complete software tasks by taking real actions through the provided tools and reacting to real results. Call a tool every step. Be precise; verify by executing.
 ${extra ? '\n' + extra + '\n' : ''}
 ${STRATEGY}`;
 }
+
+// Injected when the loop detects it's stuck — forces genuine self-healing instead of repetition.
+const STUCK_INTERVENTION = `⚠️ YOU ARE STUCK — recent actions failed or repeated with no progress. A real autonomous agent diagnoses and adapts; it never repeats a failing action or waits to be rescued.
+RIGHT NOW:
+1. STOP. Do NOT re-run anything that already failed (e.g. the same command with a different option is still repeating).
+2. SEE the real error — if you suppressed stderr (2>/dev/null) or piped it away, re-run the failing command WITHOUT suppression and read the actual failure.
+3. Diagnose the ROOT CAUSE, then FIX it directly: install the missing dependency (pip/npm), research the error or approach (call_agent a research agent, or read docs), or switch to a completely different method.
+4. If a sub-goal is genuinely blocked, change strategy or finish with the partial results you DO have — do not loop.`;
 
 // ─── Robust extraction of a single JSON object from model output ───────────────
 export function extractToolCall(raw) {
@@ -611,10 +622,14 @@ export async function runAgentLoop(goal, opts = {}) {
   for (let step = 1; step <= maxSteps; step++) {
     messages = await maybeCompact(messages, onEvent, step);
 
-    // Smart routing: cruise on cheap/fast flash; when stuck (repeated errors), escalate to the
-    // pro reasoner for the next step. Spend the expensive model only where it matters.
+    // Smart routing + SELF-HEALING: cruise on flash; when stuck (repeated failures), escalate to
+    // the pro reasoner AND inject a forced diagnose-and-adapt intervention so the agent fixes the
+    // root cause and changes strategy instead of repeating a dead action or waiting for rescue.
     const stuck = errorStreak >= 2;
-    if (stuck) emit(onEvent, { type: 'escalate', step, to: 'pro', errorStreak });
+    if (stuck) {
+      emit(onEvent, { type: 'stuck', step, errorStreak });
+      messages.push({ role: 'user', content: STUCK_INTERVENTION });
+    }
 
     let resp;
     try {

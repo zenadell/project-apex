@@ -63,8 +63,8 @@ const res = await runAgentLoop(goal, {
       console.log(pad + chalk.magenta(`    ⇣ delegating to sub-agent: `) + C.dim(ev.task.slice(0, 80)));
     } else if (ev.type === 'delegate_end') {
       console.log(pad + (ev.success ? C.ok('    ⇡ sub-agent done: ') : C.err('    ⇡ sub-agent failed: ')) + C.dim((ev.summary || '').slice(0, 90)));
-    } else if (ev.type === 'escalate') {
-      console.log(pad + C.info(`    ⤴ stuck (${ev.errorStreak} errors) — escalating to pro reasoner`));
+    } else if (ev.type === 'stuck') {
+      console.log(pad + C.info(`    ⤴ stuck (${ev.errorStreak} fails) — self-healing: diagnose + adapt (pro reasoner)`));
     } else if (ev.type === 'compact') {
       console.log(pad + C.info(`    ⧉ context compacted (${ev.fromMessages} msgs → summary + recent)`));
     } else if (ev.type === 'snapshot') {
