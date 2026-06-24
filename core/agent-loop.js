@@ -752,8 +752,13 @@ export async function runAgentLoop(goal, opts = {}) {
     if (!finishCall) errorStreak = anyError ? errorStreak + 1 : 0;
   }
 
+  // Out of steps — still ship the best partial answer rather than a useless "couldn't finish".
   emit(onEvent, { type: 'max_steps', steps: maxSteps });
-  return finalize({ success: false, summary: `Reached max steps (${maxSteps}) without finishing.`, steps: maxSteps, transcript });
+  const partial = (depth === 0)
+    ? await synthesizePartial(goal, transcript)
+    : `Reached max steps (${maxSteps}) without finishing.`;
+  if (depth === 0) emit(onEvent, { type: 'degrade', step: maxSteps });
+  return finalize({ success: false, degraded: depth === 0 || undefined, summary: partial, steps: maxSteps, transcript });
 }
 
 // Fan every loop event out to (a) the caller's onEvent and (b) the global bus, so any in-process
