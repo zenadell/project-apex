@@ -167,7 +167,27 @@ class Orchestrator {
       console.log(chalk.gray(`\n[Orchestrator] Intent classified as chat, but passing to Graph Engine for autonomous implicit reasoning.`));
     }
 
-    // Try capability router before full agent pipeline
+    // Substantive "do something" requests go straight through the agentic loop FIRST — APEX's
+    // strongest path (native tool-calling, plan → delegate → independent verification, plus
+    // call_agent to reach specialist agents). Everything EXCEPT conversational/pure-info intents
+    // (chat, question) and inherently-specialist ones (research, security, deploy, hardware) routes
+    // here — including the 'general' fallback. Falls back to the legacy graph engine on any error.
+    // Toggle off with APEX_LOOP_ORCHESTRATION=false.
+    const NON_LOOP = new Set(['chat', 'question', 'research', 'security', 'deploy', 'hardware']);
+    if (!NON_LOOP.has(intent.intent) && process.env.APEX_LOOP_ORCHESTRATION !== 'false') {
+      try {
+        const loopRes = await this._runViaLoop(userInput, opts);
+        Memory.storeTask({ id: loopRes.taskId, task: userInput, result: loopRes.synthesis, success: loopRes.success, durationMs: Date.now() - startTime });
+        identity.recordTask(loopRes.success);
+        bus.emit('task:completed', { id: loopRes.taskId, duration: Date.now() - startTime });
+        console.log(chalk.green(`\n✅ Completed via loop in ${((Date.now() - startTime) / 1000).toFixed(1)}s\n`));
+        return loopRes;
+      } catch (err) {
+        console.log(chalk.yellow(`[Orchestrator] Loop path errored (${err.message}); falling back to graph engine.`));
+      }
+    }
+
+    // Capability router (high-confidence direct shortcuts) — for the remaining non-loop intents.
     if (!opts.forceAgents) {
       const capMatch = await capabilityRouter.route(userInput).catch(() => null);
       if (capMatch && capMatch.confidence > 0.9) {
@@ -178,25 +198,6 @@ class Orchestrator {
             : JSON.stringify(capResult.result, null, 2).slice(0, 500);
           return { taskId: uuidv4(), input: userInput, synthesis, capabilityUsed: capMatch.capability.id, result: capResult };
         }
-      }
-    }
-
-    // Substantive "do something" requests go straight through the agentic loop — APEX's strongest
-    // path (native tool-calling, plan → delegate → independent verification, and call_agent to reach
-    // specialist agents for web/email/deploy/etc.). Conversational/pure-info intents (chat, question)
-    // and inherently-specialist ones (research, security, deploy, hardware) keep their existing
-    // routing. Falls back to the legacy graph engine on any error. Toggle off with APEX_LOOP_ORCHESTRATION=false.
-    const LOOP_INTENTS = new Set(['build', 'command', 'action', 'unknown']);
-    if (LOOP_INTENTS.has(intent.intent) && process.env.APEX_LOOP_ORCHESTRATION !== 'false') {
-      try {
-        const loopRes = await this._runViaLoop(userInput, opts);
-        Memory.storeTask({ id: loopRes.taskId, task: userInput, result: loopRes.synthesis, success: loopRes.success, durationMs: Date.now() - startTime });
-        identity.recordTask(loopRes.success);
-        bus.emit('task:completed', { id: loopRes.taskId, duration: Date.now() - startTime });
-        console.log(chalk.green(`\n✅ Completed via loop in ${((Date.now() - startTime) / 1000).toFixed(1)}s\n`));
-        return loopRes;
-      } catch (err) {
-        console.log(chalk.yellow(`[Orchestrator] Loop path errored (${err.message}); falling back to graph engine.`));
       }
     }
 

@@ -10,7 +10,7 @@ import fs from 'fs';
 import { orchestrator } from './core/orchestrator.js';
 import Memory from './core/memory.js';
 import registry from './core/agent-registry.js';
-import DashboardServer from './dashboard/server.js';
+import { startDashboard } from './dashboard/server.js';
 import { exec } from 'child_process';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
@@ -69,13 +69,12 @@ async function interactiveMode() {
   await orchestrator.init();
   
   // Start Dashboard UI Server
-  const dash = new DashboardServer(orchestrator);
-  await dash.start();
-  
+  startDashboard();
+
   // Auto-open Dashboard on macOS
   console.log(chalk.magenta('🌐 Launching APEX Live Dashboard...'));
-  exec('open http://localhost:7332').on('error', () => {
-    console.log(chalk.yellow('⚠️ Could not automatically open the browser. Please manually navigate to http://localhost:7332'));
+  exec('open http://localhost:3456').on('error', () => {
+    console.log(chalk.yellow('⚠️ Could not automatically open the browser. Please manually navigate to http://localhost:3456'));
   });
 
   console.log(chalk.cyan('💬 Interactive mode. Type your task or command.\n'));
@@ -268,8 +267,7 @@ program
     printBanner();
     
     // Start Dashboard UI Server for visibility
-    const dash = new DashboardServer(orchestrator);
-    await dash.start();
+    startDashboard();
 
     const finalOutputDir = getOutputDir(task, opts);
     console.log(chalk.green(`\n📂 Project Workspace: ${finalOutputDir}\n`));

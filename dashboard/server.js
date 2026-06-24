@@ -62,5 +62,17 @@ wss.on('connection', ws => {
   ws.send(JSON.stringify({ type: 'init', data: { agents: registry.all().map(a => ({ name: a.name, type: a.type, description: a.description, status: state.agentActivity[a.name]?.status || 'idle' })), tasks: state.tasks.slice(-20), logs: state.logs.slice(-100), loop: state.loop.slice(-120), metrics: state.metrics, uptime: Math.floor((Date.now() - state.startTime) / 1000) } }));
 });
 
-server.listen(PORT, () => console.log(`\n🖥️  APEX Dashboard running at http://localhost:${PORT}\n`));
+let _started = false;
+// Start the dashboard HTTP/WS server (idempotent). apex.js calls this; importing this module only
+// registers the bus listeners, it no longer listens on its own.
+export function startDashboard(port = PORT) {
+  if (_started) return server;
+  _started = true;
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') console.warn(`⚠️  Dashboard port ${port} already in use — skipping dashboard (another APEX instance running?).`);
+    else console.warn(`⚠️  Dashboard error: ${err.message}`);
+  });
+  server.listen(port, () => console.log(`\n🖥️  APEX Dashboard running at http://localhost:${port}\n`));
+  return server;
+}
 export default server;
