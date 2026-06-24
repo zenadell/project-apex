@@ -153,10 +153,14 @@ export class SkillsAgent extends BaseAgent {
     await execAsync(command, { timeout: 60000 });
 
     // Detect type and install deps
+    // Best-effort dependency install — a failure here must NOT abort the whole integration
+    // (many repos have dev-deps that fail; the wrapper often works without them).
     if (existsSync(path.join(skillDir, 'package.json'))) {
-      await execAsync('npm install', { cwd: skillDir, timeout: 90000 });
+      try { await execAsync('npm install --omit=dev --no-audit --no-fund', { cwd: skillDir, timeout: 120000 }); }
+      catch (e) { this.log(`npm install failed, continuing without deps: ${e.message.slice(0, 120)}`, 'warn'); }
     } else if (existsSync(path.join(skillDir, 'requirements.txt'))) {
-      await execAsync(`pip3 install -r requirements.txt`, { cwd: skillDir, timeout: 60000 });
+      try { await execAsync('pip3 install -r requirements.txt', { cwd: skillDir, timeout: 90000 }); }
+      catch (e) { this.log(`pip install failed, continuing: ${e.message.slice(0, 120)}`, 'warn'); }
     }
 
     // Run Graphify to map the entire repository
@@ -176,9 +180,23 @@ export class SkillsAgent extends BaseAgent {
       if (existsSync(readmePath)) graphifyContext = readFileSync(readmePath, 'utf8').slice(0, 4000);
     }
 
-    const wrapper = await this._generateGitWrapper(name, skillDir, description, graphifyContext);
+    // Build the wrapper via the agentic loop — generated, then VERIFIED to import (not the old
+    // prose-to-disk pattern that could write a broken wrapper).
+    const { runAgentLoop } = await import('../core/agent-loop.js');
     const wrapperPath = path.join(skillDir, 'apex-wrapper.js');
-    writeFileSync(wrapperPath, wrapper);
+    const res = await runAgentLoop(
+      `A tool/repo (${source}) is cloned in this workspace. Create apex-wrapper.js: a Node.js ES module ("export default") exposing the tool's core functionality as a class/functions APEX agents can call (use child_process or imports as fits the repo).
+
+Repo context:
+${(graphifyContext || '').slice(0, 3000)}
+
+Verify it loads by running: node --input-type=module -e "import('./apex-wrapper.js').then(()=>console.log('IMPORT_OK')).catch(e=>{console.error(e);process.exit(1)})"
+Do NOT finish until you have actually seen IMPORT_OK.`,
+      { workspace: skillDir, maxSteps: 14 }
+    );
+    if (!res.success || !existsSync(wrapperPath)) {
+      throw new Error(`Failed to build a verified wrapper for "${name}": ${res.summary}`);
+    }
 
     this._registerSkill({ name, type: 'git', source, path: wrapperPath, description });
     Memory.registerCapability({ name, description, type: 'skill', path: wrapperPath });
