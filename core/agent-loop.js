@@ -114,11 +114,16 @@ async function probeEnvironment() {
 
 // When the agent has flailed too long, STOP and deliver the best partial answer from what it has —
 // genuine graceful degradation so APEX always ships something useful instead of looping to a dead end.
-async function synthesizePartial(goal, transcript) {
+export async function synthesizePartial(goal, transcript) {
   const log = transcript.map(t => `${t.tool}${t.args?.command ? ` $${t.args.command}` : t.args?.path ? ` ${t.args.path}` : ''} → ${t.result?.ok ? 'ok' : 'FAIL'}: ${String(t.result?.observation || '').replace(/\s+/g, ' ').slice(0, 180)}`).join('\n').slice(0, 6000);
+  // Deterministic fallback so the answer is NEVER empty (e.g. if the model returns empty content).
+  const ok = transcript.filter(t => t.result?.ok && t.tool !== 'plan' && t.tool !== 'todo');
+  const fallback = `Could not fully complete "${goal}". What I achieved: ${ok.slice(-6).map(t => t.tool + (t.args?.path ? ` ${t.args.path}` : t.args?.command ? ` (${String(t.args.command).slice(0, 40)})` : '')).join('; ') || 'minimal progress'}. The final step stayed blocked; any partial artifacts are in the workspace.`;
   try {
-    return await chat([{ role: 'user', content: `You attempted this task but could not fully complete it after repeated tries. Using ONLY what you actually achieved/learned below, give the user the BEST PARTIAL ANSWER you can for their request, and state in one line what remained blocked and why. Be useful and concrete, not apologetic.\n\nREQUEST: ${goal}\n\nWHAT HAPPENED:\n${log}` }], { complex: true, temperature: 0.3, maxTokens: 700 });
-  } catch { return `Could not fully complete "${goal}". Partial progress is in the workspace; the blocking step could not be resolved.`; }
+    // NOT the reasoning model here, and a generous budget — otherwise reasoning eats the tokens and content comes back empty.
+    const out = await chat([{ role: 'user', content: `You attempted this task but could not fully complete it after repeated tries. Using ONLY what you actually achieved/learned below, give the user the BEST PARTIAL ANSWER you can for their request, and state in one line what remained blocked and why. Be useful and concrete, not apologetic.\n\nREQUEST: ${goal}\n\nWHAT HAPPENED:\n${log}` }], { temperature: 0.3, maxTokens: 2000 });
+    return (out && out.trim()) ? out : fallback;
+  } catch { return fallback; }
 }
 
 // ─── Robust extraction of a single JSON object from model output ───────────────
