@@ -38,6 +38,7 @@ const res = await runAgentLoop(goal, {
   workspace,
   maxSteps,
   verify: true,   // an independent read-only agent must confirm the work before finish is accepted
+  learn: true,    // recall lessons from similar past tasks; distill this one on success
   onEvent(ev) {
     const pad = '  '.repeat(ev.depth || 0);   // indent sub-agents by delegation depth
     if (ev.verifier) {
@@ -76,6 +77,10 @@ const res = await runAgentLoop(goal, {
       console.log(pad + (ev.verified ? C.ok('    ✓ verified: ') : C.err('    ✗ NOT verified: ')) + C.dim((ev.reason || '').slice(0, 100)));
     } else if (ev.type === 'verify_rejected') {
       console.log(pad + C.err(`    ↩ finish rejected by verifier — agent must keep working`));
+    } else if (ev.type === 'recall') {
+      console.log(pad + C.info(`    🧠 recalled ${ev.count} lesson(s) from similar past tasks`));
+    } else if (ev.type === 'learned') {
+      console.log(pad + C.info(`    🧠 distilled a reusable lesson from this run`));
     } else if (ev.type === 'observation') {
       const head = (ev.observation || '').split('\n').slice(0, 4).join('\n' + pad + '    ');
       console.log(pad + (ev.ok ? C.ok('    ✓ ') : C.err('    ✗ ')) + C.dim(head));

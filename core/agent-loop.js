@@ -447,6 +447,39 @@ async function runCallMcp(args, cfg) {
   }
 }
 
+// ─── Learning: distill successful runs into lessons, recall them on similar tasks ──
+// This is the self-improving half: after the loop verifiably succeeds, it stores a compact
+// "playbook" of what worked; on a future similar task it recalls relevant playbooks and injects
+// them as hints. Memory.search is a LIKE on content, so recall is keyword-driven.
+const STOPWORDS = new Set('the a an and or to of for with in on at is are be do does build create make write file files code test tests run using use that this it your you them then into from as new app project function class return print value string'.split(' '));
+function keywordsOf(text, n = 7) {
+  const words = (String(text).toLowerCase().match(/[a-z0-9][a-z0-9_-]{2,}/g) || []).filter(w => !STOPWORDS.has(w));
+  return [...new Set(words)].slice(0, n);
+}
+async function recallLessons(goal, onEvent) {
+  try {
+    const Memory = (await import('./memory.js')).default;
+    const seen = new Map();
+    for (const kw of keywordsOf(goal)) for (const m of Memory.search(kw, { agent: 'loop-memory', limit: 3 })) seen.set(m.id, m);
+    const lessons = [...seen.values()].sort((a, b) => (b.importance || 0) - (a.importance || 0)).slice(0, 3);
+    if (!lessons.length) return '';
+    emit(onEvent, { type: 'recall', count: lessons.length });
+    return `\nRELEVANT PAST EXPERIENCE (lessons from similar tasks you solved before — reuse what helps):\n${lessons.map((l, i) => `${i + 1}. ${l.content}`).join('\n')}`;
+  } catch { return ''; }
+}
+async function distillLesson(goal, transcript, summary, onEvent) {
+  try {
+    const Memory = (await import('./memory.js')).default;
+    const steps = transcript.map(t => `${t.tool}${t.args?.path ? ` ${t.args.path}` : ''}${t.args?.command ? ` $${t.args.command}` : ''}`).join(' → ').slice(0, 1500);
+    let playbook;
+    try {
+      playbook = await chat([{ role: 'user', content: `Distill a SHORT reusable playbook (max 6 lines) from this successfully-completed task so a future agent on a SIMILAR task can reuse the approach. Include the task type, the winning sequence, key files/commands, and any gotcha to avoid. Terse and concrete.\n\nTASK: ${goal}\nSTEPS: ${steps}\nOUTCOME: ${summary}` }], { temperature: 0.2, maxTokens: 320 });
+    } catch { playbook = `Approach: ${steps}`; }
+    Memory.store({ scope: 'long_term', agent: 'loop-memory', key: String(goal).slice(0, 100), content: `[${String(goal).slice(0, 90)}]\n${playbook}`, tags: ['playbook', 'lesson'], importance: 7 });
+    emit(onEvent, { type: 'learned' });
+  } catch { /* learning is best-effort */ }
+}
+
 // ─── Independent verification ───────────────────────────────────────────────────
 // Do NOT let the agent grade its own homework. When it claims `finish`, a SEPARATE read-only
 // agent (its own fresh context, can only read/search/RUN — never modify) must independently
@@ -518,6 +551,7 @@ export async function runAgentLoop(goal, opts = {}) {
     maxDepth = 2,
     allowedTools = null,
     verify = false,
+    learn = false,
   } = opts;
 
   if (!workspace) throw new Error('runAgentLoop requires a workspace directory');
@@ -560,7 +594,9 @@ export async function runAgentLoop(goal, opts = {}) {
   });
   const effectiveTools = restricted ? allowedTools : defaultNames;
 
-  const sys = systemPrompt(context + rosterNote);
+  // Self-improvement: recall lessons from similar past tasks and inject them as hints.
+  const learnedNote = (learn && depth === 0) ? await recallLessons(goal, onEvent) : '';
+  const sys = systemPrompt(context + rosterNote + learnedNote);
   const toolNames = new Set(effectiveTools);
   const toolSchemas = buildToolSchemas(effectiveTools);
   let messages = [{ role: 'user', content: `TASK:\n${goal}\n\nThe workspace is "${wsRoot}". Begin — use the provided tools.` }];
@@ -629,6 +665,7 @@ export async function runAgentLoop(goal, opts = {}) {
         if (verify && depth === 0 && success) verdict = await runVerifier(goal, wsRoot, summary, { llmOpts, onEvent });
 
         if (verdict.verified) {
+          if (learn && depth === 0 && success) await distillLesson(goal, transcript, summary, onEvent);
           emit(onEvent, { type: 'finish', step, summary, success, verified: (verify && depth === 0) || undefined });
           bus.emit('agentloop:finish', { success, summary });
           returned = finalize({ success, summary, steps: step, transcript, verified: (verify && depth === 0) || undefined });

@@ -314,6 +314,7 @@ class Orchestrator {
       maxSteps: 45,
       writeGuard: guard,
       verify: true,
+      learn: true,
       onEvent: (ev) => {
         if (ev.type === 'action') console.log(chalk.gray(`  loop[${ev.depth || 0}] ${ev.tool} ${ev.args?.path || ev.args?.command || ''}`));
         else if (ev.type === 'plan') console.log(chalk.blue(`  📋 ${ev.todos.map(t => t.task).join(' | ')}`));
