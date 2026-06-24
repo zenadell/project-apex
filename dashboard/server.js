@@ -1,237 +1,66 @@
-// dashboard/server.js
-// APEX Dashboard Server — serves the UI and exposes REST API for all agents
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readFileSync } from 'fs';
-import cors from 'cors';
-import chalk from 'chalk';
+import path from 'path';
 import bus from '../core/event-bus.js';
 import registry from '../core/agent-registry.js';
-import Memory from '../core/memory.js';
-import { v4 as uuidv4 } from 'uuid';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PORT = process.env.DASHBOARD_PORT || 3456;
+const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
 
-export class DashboardServer {
-  constructor(orchestrator, port = 7332) {
-    this._orchestrator = orchestrator;
-    this._port = port;
-    this._app = express();
-    this._server = createServer(this._app);
-    this._wss = new WebSocketServer({ server: this._server });
-    this._clients = new Set();
-    this._setupMiddleware();
-    this._setupRoutes();
-    this._setupWebSocket();
-    this._bridgeBusToWS();
+const state = { startTime: Date.now(), tasks: [], logs: [], loop: [], agentActivity: {}, metrics: { completed: 0, failed: 0, totalTime: 0 } };
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/api/health', (req, res) => res.json({ status: 'operational', uptime: Math.floor((Date.now() - state.startTime) / 1000), agents: registry.all().length, tasksCompleted: state.metrics.completed }));
+app.get('/api/agents', (req, res) => res.json(registry.all().map(a => ({ name: a.name, type: a.type, description: a.description, status: state.agentActivity[a.name]?.status || 'idle' }))));
+app.get('/api/tasks', (req, res) => res.json(state.tasks.slice(-50)));
+app.get('/api/logs', (req, res) => res.json(state.logs.slice(-200)));
+app.get('/api/metrics', (req, res) => {
+  const m = state.metrics;
+  res.json({ ...m, avgTime: m.completed > 0 ? Math.round(m.totalTime / m.completed / 1000) : 0, successRate: (m.completed + m.failed) > 0 ? Math.round((m.completed / (m.completed + m.failed)) * 100) : 100 });
+});
+
+function broadcast(type, data) { const msg = JSON.stringify({ type, data, ts: Date.now() }); wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); }); }
+
+bus.on('task:start', d => { const t = { id: d.taskId, input: d.input, status: 'PLANNING', startTime: Date.now() }; state.tasks.push(t); broadcast('task:start', t); });
+bus.on('task:state', d => { const t = state.tasks.find(x => x.id === d.taskId); if (t) { t.status = d.status; broadcast('task:state', d); } });
+bus.on('task:complete', d => { const t = state.tasks.find(x => x.id === d.taskId); if (t) { t.status = 'COMPLETED'; t.duration = Date.now() - t.startTime; state.metrics.completed++; state.metrics.totalTime += t.duration; } broadcast('task:complete', d); });
+bus.on('task:failed', d => { const t = state.tasks.find(x => x.id === d.taskId); if (t) t.status = 'FAILED'; state.metrics.failed++; broadcast('task:failed', d); });
+
+// Live agentic-loop stream → structured 'loop' messages (the "watch APEX think" panel). Args are
+// trimmed so we never ship a whole file's content over the socket.
+bus.on('agentloop:event', ev => {
+  const e = {
+    ts: Date.now(), type: ev.type, step: ev.step, depth: ev.depth || 0, model: ev.model,
+    tool: ev.tool, path: ev.args?.path, command: ev.args?.command, query: ev.args?.query,
+    ok: ev.ok, observation: typeof ev.observation === 'string' ? ev.observation.slice(0, 240) : undefined,
+    todos: ev.todos, task: ev.task, agent: ev.agent, parallel: ev.parallel,
+    summary: ev.summary, success: ev.success, verified: ev.verified, reason: ev.reason, errorStreak: ev.errorStreak,
+  };
+  state.loop.push(e); if (state.loop.length > 400) state.loop.shift();
+  broadcast('loop', e);
+});
+
+const originalEmit = bus.emit.bind(bus);
+bus.emit = function(event, data) {
+  // agentloop:* is handled by the dedicated 'loop' stream above — keep it out of the noisy log feed.
+  if (!String(event).startsWith('agentloop:')) {
+    const entry = { ts: Date.now(), event, summary: typeof data === 'string' ? data : JSON.stringify(data)?.slice(0, 200) };
+    state.logs.push(entry); if (state.logs.length > 500) state.logs.shift();
+    broadcast('log', entry);
+    if (data?.agentName) { state.agentActivity[data.agentName] = { status: event.includes('complete') ? 'idle' : 'working', lastTask: data.task || event, lastUpdate: Date.now() }; broadcast('agent:activity', { name: data.agentName, ...state.agentActivity[data.agentName] }); }
   }
+  return originalEmit(event, data);
+};
 
-  _setupMiddleware() {
-    this._app.use(cors());
-    this._app.use(express.json());
-    // Serve dashboard static files
-    this._app.use(express.static(join(__dirname)));
-  }
+wss.on('connection', ws => {
+  ws.send(JSON.stringify({ type: 'init', data: { agents: registry.all().map(a => ({ name: a.name, type: a.type, description: a.description, status: state.agentActivity[a.name]?.status || 'idle' })), tasks: state.tasks.slice(-20), logs: state.logs.slice(-100), loop: state.loop.slice(-120), metrics: state.metrics, uptime: Math.floor((Date.now() - state.startTime) / 1000) } }));
+});
 
-  _setupRoutes() {
-    const app = this._app;
-
-    // ── STATUS ─────────────────────────────────────────
-    app.get('/api/status', (req, res) => {
-      res.json({
-        ok: true,
-        agents: registry.snapshot(),
-        capabilities: Memory.listCapabilities(),
-        awareness: Memory.selfAwareness(),
-        uptime: process.uptime(),
-      });
-    });
-
-    // ── EXECUTE TASK ────────────────────────────────────
-    app.post('/api/task', async (req, res) => {
-      const { input, opts = {} } = req.body;
-      if (!input) return res.status(400).json({ error: 'input required' });
-
-      try {
-        const result = await this._orchestrator.execute(input, opts);
-        res.json({ ok: true, ...result });
-      } catch (err) {
-        res.status(500).json({ ok: false, error: err.message });
-      }
-    });
-
-    // ── AGENT DISPATCH ──────────────────────────────────
-    app.post('/api/agent/:name', async (req, res) => {
-      const agent = registry.get(req.params.name);
-      if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
-      try {
-        const result = await agent._handleTask({ id: uuidv4(), ...req.body });
-        res.json({ ok: true, agent: req.params.name, result });
-      } catch (err) {
-        res.status(500).json({ ok: false, error: err.message });
-      }
-    });
-
-    // ── AGENTS LIST ─────────────────────────────────────
-    app.get('/api/agents', (req, res) => {
-      res.json({ agents: registry.snapshot() });
-    });
-
-    // ── MEMORY ──────────────────────────────────────────
-    app.get('/api/memory', (req, res) => {
-      const { q, limit = 20 } = req.query;
-      const results = q ? Memory.search(q, { limit: parseInt(limit) }) : Memory.recent('system', parseInt(limit));
-      res.json({ results, awareness: Memory.selfAwareness() });
-    });
-
-    // ── CAPABILITIES ────────────────────────────────────
-    app.get('/api/capabilities', (req, res) => {
-      res.json({ capabilities: Memory.listCapabilities() });
-    });
-
-    // ── TASK HISTORY ────────────────────────────────────
-    app.get('/api/history', (req, res) => {
-      const mems = Memory.search('task', { limit: 50 });
-      res.json({ history: mems });
-    });
-
-    // ── SPAWN AGENT ─────────────────────────────────────
-    app.post('/api/spawn', async (req, res) => {
-      const { name, type, description } = req.body;
-      const agent = await registry.spawn({ name, type, description });
-      res.json({ ok: true, agent: agent.toJSON() });
-    });
-
-    // ── SECURITY SCAN ────────────────────────────────────
-    app.post('/api/security/scan', async (req, res) => {
-      const secAgent = registry.get('SecurityAgent');
-      if (!secAgent) return res.status(503).json({ error: 'SecurityAgent not available' });
-      const result = await secAgent._handleTask({ id: uuidv4(), ...req.body });
-      res.json({ ok: true, result });
-    });
-
-    // ── BROWSER ACTION ───────────────────────────────────
-    app.post('/api/browser', async (req, res) => {
-      const browser = registry.get('BrowserAgentPro');
-      if (!browser) return res.status(503).json({ error: 'BrowserAgentPro not available' });
-      const result = await browser._handleTask({ id: uuidv4(), ...req.body });
-      res.json({ ok: true, result });
-    });
-
-    // ── SELF-MOD ─────────────────────────────────────────
-    app.post('/api/selfmod', async (req, res) => {
-      const selfMod = registry.get('SelfModAgent');
-      if (!selfMod) return res.status(503).json({ error: 'SelfModAgent not available' });
-      const result = await selfMod._handleTask({ id: uuidv4(), type: req.body.type || 'detect_gaps' });
-      res.json({ ok: true, result });
-    });
-
-    // ── PROACTIVE STATUS ─────────────────────────────────
-    app.get('/api/proactive', async (req, res) => {
-      const { proactiveEngine } = await import('../core/proactive-engine.js');
-      res.json(proactiveEngine.getStatus());
-    });
-
-    // ── SCHEDULER ────────────────────────────────────────
-    app.get('/api/schedule', async (req, res) => {
-      const { taskScheduler } = await import('../core/task-scheduler.js');
-      res.json({ tasks: taskScheduler.list() });
-    });
-
-    app.post('/api/schedule', async (req, res) => {
-      const { taskScheduler } = await import('../core/task-scheduler.js');
-      const id = taskScheduler.schedule(req.body);
-      res.json({ ok: true, id });
-    });
-
-    // ── PROFILE ──────────────────────────────────────────
-    app.get('/api/profile', async (req, res) => {
-      const profile = registry.get('UserProfileAgent');
-      if (!profile) return res.status(503).json({ error: 'UserProfileAgent not available' });
-      const result = await profile._handleTask({ id: uuidv4(), action: 'status' });
-      res.json({ ok: true, ...result });
-    });
-
-    // ── VOICE ─────────────────────────────────────────────
-    app.post('/api/voice', async (req, res) => {
-      const voice = registry.get('VoiceAgent');
-      if (!voice) return res.status(503).json({ error: 'VoiceAgent not available' });
-      const result = await voice._handleTask({ id: uuidv4(), text: req.body.text, action: 'speak' });
-      res.json({ ok: true, result });
-    });
-
-    // ── CATCH ALL → serve dashboard ───────────────────────
-    app.get('*', (req, res) => {
-      res.sendFile(join(__dirname, 'index.html'));
-    });
-  }
-
-  _setupWebSocket() {
-    this._wss.on('connection', (ws) => {
-      this._clients.add(ws);
-
-      // Send initial state
-      ws.send(JSON.stringify({
-        type: 'init',
-        agents: registry.snapshot(),
-        capabilities: Memory.listCapabilities(),
-        awareness: Memory.selfAwareness(),
-      }));
-
-      ws.on('message', async (data) => {
-        try {
-          const msg = JSON.parse(data.toString());
-          if (msg.type === 'task') {
-            const result = await this._orchestrator.execute(msg.input);
-            ws.send(JSON.stringify({ type: 'task_result', taskId: msg.taskId, result }));
-          }
-          if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
-        } catch (err) {
-          ws.send(JSON.stringify({ type: 'error', error: err.message }));
-        }
-      });
-
-      ws.on('close', () => this._clients.delete(ws));
-    });
-  }
-
-  _bridgeBusToWS() {
-    // Forward all bus events to connected dashboard clients
-    const forward = (event, data) => {
-      const msg = JSON.stringify({ type: 'event', event, data, ts: Date.now() });
-      for (const ws of this._clients) {
-        if (ws.readyState === 1) ws.send(msg);
-      }
-    };
-
-    const events = [
-      'task:started', 'task:completed', 'task:failed',
-      'agent:log', 'agent:started', 'agent:completed', 'agent:failed', 'agent:status',
-      'selfmod:gap_filled', 'selfmod:agent_created', 'selfmod:tool_created',
-      'healing:agent_recovered', 'healing:agent_respawned',
-      'proactive:triggered', 'proactive:health_report',
-      'skills:installed', 'bridge:device_connected',
-      'orchestrator:ready', 'pipeline:completed',
-    ];
-
-    events.forEach(e => bus.on(e, (data) => forward(e, data)));
-  }
-
-  async start() {
-    return new Promise((resolve) => {
-      this._server.listen(this._port, () => {
-        console.log(chalk.cyan(`\n🖥️  APEX Dashboard: http://localhost:${this._port}`));
-        bus.emit('dashboard:started', { port: this._port });
-        resolve(this);
-      });
-    });
-  }
-
-  stop() { this._server.close(); }
-}
-
-export default DashboardServer;
+server.listen(PORT, () => console.log(`\n🖥️  APEX Dashboard running at http://localhost:${PORT}\n`));
+export default server;

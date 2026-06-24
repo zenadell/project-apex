@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APEX — Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-left"><div class="logo">⚡</div><div><h1>APEX <span class="header-subtitle">Command Center</span></h1></div></div>
+    <div class="header-right">
+      <div class="status-indicator" id="connStatus"><span class="status-dot"></span><span class="status-text">Connecting...</span></div>
+      <div class="uptime" id="uptime">00:00:00</div>
+    </div>
+  </header>
+  <section class="metrics-bar">
+    <div class="metric-card"><div class="metric-value" id="metricCompleted">0</div><div class="metric-label">Completed</div></div>
+    <div class="metric-card"><div class="metric-value" id="metricFailed">0</div><div class="metric-label">Failed</div></div>
+    <div class="metric-card"><div class="metric-value" id="metricSuccessRate">100%</div><div class="metric-label">Success Rate</div></div>
+    <div class="metric-card"><div class="metric-value" id="metricAvgTime">0s</div><div class="metric-label">Avg Time</div></div>
+    <div class="metric-card"><div class="metric-value" id="metricAgents">0</div><div class="metric-label">Agents</div></div>
+  </section>
+  <main class="main-grid">
+    <section class="panel agents-panel">
+      <div class="panel-header"><h2>🤖 Agents</h2><span class="badge" id="activeAgentCount">0 active</span></div>
+      <div class="agents-grid" id="agentsGrid"></div>
+    </section>
+    <section class="panel loop-panel">
+      <div class="panel-header"><h2>🔁 Agent Loop <span class="loop-sub">— watch APEX think</span></h2><span class="badge" id="loopStatus">idle</span></div>
+      <div class="loop-body">
+        <div class="loop-plan" id="loopPlan"></div>
+        <div class="loop-stream" id="loopStream"><div class="empty-state">No active loop. Ask APEX to build something and watch it plan → act → verify here.</div></div>
+      </div>
+    </section>
+    <section class="panel tasks-panel">
+      <div class="panel-header"><h2>📋 Tasks</h2><span class="badge" id="taskCount">0</span></div>
+      <div class="tasks-list" id="tasksList"><div class="empty-state">No tasks yet. Run APEX to see tasks here.</div></div>
+    </section>
+    <section class="panel logs-panel">
+      <div class="panel-header"><h2>📡 Live Stream</h2><button class="btn-clear" id="clearLogs">Clear</button></div>
+      <div class="logs-container" id="logsContainer"><div class="empty-state">Waiting for events...</div></div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

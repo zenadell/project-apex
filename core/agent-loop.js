@@ -642,6 +642,11 @@ export async function runAgentLoop(goal, opts = {}) {
   return finalize({ success: false, summary: `Reached max steps (${maxSteps}) without finishing.`, steps: maxSteps, transcript });
 }
 
-function emit(cb, ev) { try { cb(ev); } catch {} }
+// Fan every loop event out to (a) the caller's onEvent and (b) the global bus, so any in-process
+// subscriber (e.g. the dashboard) gets the full live stream without the caller wiring anything.
+function emit(cb, ev) {
+  try { cb(ev); } catch {}
+  try { bus.emit('agentloop:event', ev); } catch {}
+}
 
 export default runAgentLoop;
