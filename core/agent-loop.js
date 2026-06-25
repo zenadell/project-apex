@@ -86,7 +86,10 @@ const STRATEGY = `Work strategy:
 - Keep the workspace tidy: delete any throwaway scratch/probe files you created (e.g. tmp_*.mjs) before you finish — leave only the real deliverables.
 - NEVER hide errors: do NOT suppress stderr (no "2>/dev/null", no swallowing output). You can only fix what you can SEE.
 - Before using an unfamiliar tool/API, check it's available (which/--version) or research it. If something is missing, INSTALL it (pip/npm) — don't work around a missing dependency.
-- SELF-HEAL: when an action fails, do NOT repeat it. Read the real error, diagnose the ROOT CAUSE, then act on it (install the missing thing, research the error, or switch method). You are autonomous — never stall waiting for a human.`;
+- SELF-HEAL: when an action fails, do NOT repeat it. Read the real error, diagnose the ROOT CAUSE, then act on it (install the missing thing, research the error, or switch method). You are autonomous — never stall waiting for a human.
+- BE TARGETED AND EFFICIENT — minimize steps. Once a tool, install, or whole approach has failed about twice, treat it as UNAVAILABLE: do NOT keep re-attempting it. Switch to a simpler alternative, or stop and deliver the best partial result you already have. Spinning is failure.
+- NEVER FABRICATE. Do not invent output, file contents, transcripts, metrics, or "plausible" answers you didn't actually obtain from a tool. If you couldn't produce something, say so plainly and report the blocker — a truthful PARTIAL answer ("here's what I confirmed; X was blocked because Y") always beats a confident fabrication.
+- The deliverable is a WORKING ARTIFACT or a REAL answer backed by actual tool output — never just a description or a plan. Finish the job, then report what real execution returned.`;
 
 function systemPrompt(extra = '') {
   return `You are APEX's autonomous engineering core. You complete software tasks by taking real actions through the provided tools and reacting to real results. Call a tool every step. Be precise; verify by executing.
@@ -667,7 +670,7 @@ export async function runAgentLoop(goal, opts = {}) {
       emit(onEvent, { type: 'stuck', step, errorStreak });
       // SURVIVAL: after repeated failed self-heal attempts, stop flailing and ship the best partial
       // answer from what already works — never loop to a dead end "couldn't finish".
-      if (stuckSteps >= 5) {
+      if (stuckSteps >= 3) {
         emit(onEvent, { type: 'degrade', step });
         const partial = await synthesizePartial(goal, transcript);
         bus.emit('agentloop:finish', { success: false, summary: partial });
