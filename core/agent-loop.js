@@ -451,7 +451,7 @@ async function listAvailableAgents() {
 }
 
 async function runCallAgent(args, cfg) {
-  const { onEvent, depth } = cfg;
+  const { onEvent, depth, workspace } = cfg;
   const name = args.agent, task = args.task;
   if (!name || !task) return { ok: false, observation: 'call_agent needs "agent" and "task".' };
   let registry;
@@ -463,8 +463,22 @@ async function runCallAgent(args, cfg) {
   }
   emit(onEvent, { type: 'call_agent', depth, agent: name, task });
   try {
+    // Extract file/image paths + URLs from the task and pass them through — without this, vision/
+    // file-consuming agents (e.g. VisionAgent needs task.imagePath) get only prose and fail.
+    const urlMatch = task.match(/https?:\/\/[^\s)"'<>]+/);
+    const tokens = task.match(/(?:\.{0,2}\/)?[\w./~-]+\.(?:png|jpe?g|webp|gif|bmp|pdf|txt|json|csv|md|mp4|mov|wav|mp3|html?)/gi) || [];
+    const resolved = [];
+    for (const p of tokens) {
+      try { const abs = path.isAbsolute(p) ? p : path.resolve(workspace || process.cwd(), p); if (fs.existsSync(abs) && !resolved.includes(abs)) resolved.push(abs); } catch {}
+    }
+    const images = resolved.filter(p => /\.(png|jpe?g|webp|gif|bmp)$/i.test(p));
     // Agents read varied field names; pass a superset so most work without per-agent mapping.
-    const payload = { id: `loop-${Date.now()}`, objective: task, prompt: task, query: task, instruction: task, task };
+    const payload = {
+      id: `loop-${Date.now()}`, objective: task, prompt: task, query: task, instruction: task, task, workspace,
+      imagePath: images[0], images, paths: resolved, filePath: resolved[0],
+      imageUrl: (urlMatch && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(urlMatch[0])) ? urlMatch[0] : undefined,
+      url: urlMatch ? urlMatch[0] : undefined,
+    };
     const result = (typeof agent._handleTask === 'function') ? await agent._handleTask(payload) : await agent.run(payload);
     let obs;
     if (result == null) obs = `${name} completed (no return value).`;
@@ -655,6 +669,8 @@ export async function runAgentLoop(goal, opts = {}) {
   let consecutiveParseFails = 0;
   let errorStreak = 0;   // consecutive failed steps — when high, escalate flash → pro to think harder
   let stuckSteps = 0;    // steps taken while stuck — after a cap, force graceful degradation (ship partial)
+  let stepsSinceWrite = 0; // steps with no file write — caps pure info-gathering ("good enough, ship it")
+  let softNudged = false;
 
   emit(onEvent, { type: 'start', goal, workspace: wsRoot });
 
@@ -677,6 +693,20 @@ export async function runAgentLoop(goal, opts = {}) {
         return finalize({ success: false, degraded: true, summary: partial, steps: step, transcript });
       }
       messages.push({ role: 'user', content: STUCK_INTERVENTION });
+    }
+
+    // GATHERING BUDGET ("good enough — ship it"): when a top-level run has gone many steps WITHOUT
+    // producing any file (pure info-gathering, e.g. "tell me about X"), stop over-collecting and
+    // deliver the best answer from what's gathered. Builds write files, reset this, and are unaffected.
+    if (depth === 0 && stepsSinceWrite >= 10) {
+      emit(onEvent, { type: 'budget', step, stepsSinceWrite });
+      const partial = await synthesizePartial(goal, transcript);
+      bus.emit('agentloop:finish', { success: true, summary: partial });
+      return finalize({ success: true, degraded: true, summary: partial, steps: step, transcript });
+    }
+    if (depth === 0 && stepsSinceWrite === 6 && !softNudged) {
+      softNudged = true;
+      messages.push({ role: 'user', content: 'You have gathered a lot already and produced no file yet. If you have enough to give a useful answer, STOP gathering and deliver your best answer NOW (with honest caveats about anything you could not confirm). Only continue if you are genuinely one step from a clearly better result.' });
     }
 
     // Use the pro reasoner when stuck AND on the very first step — choosing the right (simplest)
@@ -718,6 +748,7 @@ export async function runAgentLoop(goal, opts = {}) {
     else messages.push({ role: 'assistant', content: resp.content || JSON.stringify({ tool: callsToRun[0].name, args: callsToRun[0].args }) });
 
     let anyError = false;
+    let wroteThisStep = false;
     let returned = null;
 
     for (const c of callsToRun) {
@@ -753,7 +784,7 @@ export async function runAgentLoop(goal, opts = {}) {
         if (!toolNames.has(c.name)) result = { ok: false, observation: `Tool "${c.name}" is not available here. Available: ${[...toolNames].join(', ')}.` };
         else if (c.name === 'plan' || c.name === 'todo') result = updatePlan(c.name, c.args || {}, todos, onEvent, depth);
         else if (c.name === 'delegate') result = await runDelegate(c.args || {}, { workspace, writeGuard, llmOpts, depth, maxDepth, maxSteps, onEvent });
-        else if (c.name === 'call_agent') result = await runCallAgent(c.args || {}, { onEvent, depth });
+        else if (c.name === 'call_agent') result = await runCallAgent(c.args || {}, { onEvent, depth, workspace });
         else if (c.name === 'call_mcp') result = await runCallMcp(c.args || {}, { onEvent, depth });
         else result = await execTool(c.name, c.args, workspace, writeGuard);
       } catch (err) {
@@ -761,6 +792,7 @@ export async function runAgentLoop(goal, opts = {}) {
       }
       transcript.push({ step, tool: c.name, args: c.args, result });
       if (!result.ok) anyError = true;
+      if ((c.name === 'write_file' || c.name === 'edit_file') && result.ok) wroteThisStep = true;
       emit(onEvent, { type: 'observation', step, ok: result.ok, observation: truncate(result.observation, 800) });
       if (native.length) messages.push({ role: 'tool', tool_call_id: c.id, content: truncate(result.observation) });
       else messages.push({ role: 'user', content: `OBSERVATION (${result.ok ? 'ok' : 'error'}):\n${truncate(result.observation)}` });
@@ -768,6 +800,7 @@ export async function runAgentLoop(goal, opts = {}) {
 
     if (returned) return returned;
     if (!finishCall) errorStreak = anyError ? errorStreak + 1 : 0;
+    stepsSinceWrite = wroteThisStep ? 0 : stepsSinceWrite + 1;
   }
 
   // Out of steps — still ship the best partial answer rather than a useless "couldn't finish".
