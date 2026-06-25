@@ -74,7 +74,9 @@ export function safeParseArgs(s) {
 }
 
 const STRATEGY = `Work strategy:
-- For a multi-part or long task: FIRST call plan with a short checklist, then work the items, marking each todo in_progress when you start and done when verified.
+- SIMPLEST PATH FIRST (most important). Before doing anything, ask: what is the CHEAPEST, easiest way to achieve this goal? Briefly weigh 2-3 approaches and start with the lightest one. Strongly PREFER (a) researching / web-searching / opening the page (call_agent a research or browser agent) and (b) existing tools/agents — OVER downloading, transcribing, or installing big dependencies. Reach for a heavy approach ONLY after the simple ones genuinely fail. Do NOT tunnel into the hardest method.
+- RESEARCH the unfamiliar BEFORE diving in. If the task involves something you don't already know how to do, your FIRST move is to find out the easy way (search the web / read the page / check what's installed) — not to start building.
+- For a multi-part or long task: call plan with a short checklist, then work the items, marking each todo in_progress when you start and done when verified.
 - Delegate large, self-contained sub-tasks (e.g. "build module X", "write the test suite") with delegate — the sub-agent has its own fresh context, which keeps yours clean. Integrate and verify its result. For simple 1-2 step tasks, just do them.
 - Explore before you edit: use list_dir / search / read_file to understand existing code first.
 - Prefer edit_file (exact diff) over rewriting whole files.
@@ -95,10 +97,11 @@ ${STRATEGY}`;
 // Injected when the loop detects it's stuck — forces genuine self-healing instead of repetition.
 const STUCK_INTERVENTION = `⚠️ YOU ARE STUCK — recent actions failed or repeated with no progress. A real autonomous agent diagnoses and adapts; it never repeats a failing action or waits to be rescued.
 RIGHT NOW:
-1. STOP. Do NOT re-run anything that already failed (e.g. the same command with a different option is still repeating).
-2. SEE the real error — if you suppressed stderr (2>/dev/null) or piped it away, re-run the failing command WITHOUT suppression and read the actual failure.
-3. Diagnose the ROOT CAUSE, then FIX it directly: install the missing dependency (pip/npm), research the error or approach (call_agent a research agent, or read docs), or switch to a completely different method.
-4. If a sub-goal is genuinely blocked, change strategy or finish with the partial results you DO have — do not loop.`;
+1. STOP. Do NOT re-run anything that already failed (the same command with a different option is still repeating).
+2. STEP BACK to a SIMPLER approach you may have skipped. Is the heavy path (download/transcribe/install) even necessary? Could you just web-search it, open the page and read it, or ask a specialist agent (call_agent)? Pick the cheapest route to a good-enough answer.
+3. SEE the real error — if you suppressed stderr (2>/dev/null) or piped it away, re-run WITHOUT suppression and read the actual failure.
+4. Diagnose the ROOT CAUSE, then FIX it: install the missing dependency, research the error/approach, or switch method entirely.
+5. If the goal is genuinely blocked, deliver the BEST PARTIAL answer you have — do not loop.`;
 
 // Probe the runtime so the agent KNOWS what's available and stops attempting impossible installs
 // (e.g. apt-get on macOS, multi-GB torch). Injected into the top-level context.
@@ -673,9 +676,12 @@ export async function runAgentLoop(goal, opts = {}) {
       messages.push({ role: 'user', content: STUCK_INTERVENTION });
     }
 
+    // Use the pro reasoner when stuck AND on the very first step — choosing the right (simplest)
+    // approach up front is the single highest-leverage decision in the whole run.
+    const usePro = stuck || (depth === 0 && step === 1);
     let resp;
     try {
-      resp = await chatTools(messages, toolSchemas, { complex: stuck, temperature: 0.2, maxTokens: 8000, systemPrompt: sys, ...llmOpts });
+      resp = await chatTools(messages, toolSchemas, { complex: usePro, temperature: 0.2, maxTokens: 8000, systemPrompt: sys, ...llmOpts });
     } catch (err) {
       emit(onEvent, { type: 'llm_error', step, error: err.message });
       return finalize({ success: false, summary: `LLM call failed: ${err.message}`, steps: step - 1, transcript });
@@ -712,7 +718,7 @@ export async function runAgentLoop(goal, opts = {}) {
     let returned = null;
 
     for (const c of callsToRun) {
-      emit(onEvent, { type: 'action', step, tool: c.name, args: c.args, model: stuck ? 'pro' : 'flash' });
+      emit(onEvent, { type: 'action', step, tool: c.name, args: c.args, model: usePro ? 'pro' : 'flash' });
       bus.emit('agentloop:action', { step, tool: c.name });
 
       // ── finish: gate on INDEPENDENT verification (top level only) ──
